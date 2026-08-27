@@ -1,6 +1,24 @@
+# Newest macOS SDK installed, not the one xcode-select points at.
+#
+# The macOS 26+ look, Liquid Glass included, is gated on the SDK version a
+# binary is linked against. nix-darwin points xcode-select at apple-sdk-14.4,
+# which puts every AppKit control into the old appearance no matter what the
+# code does.
+sdk := ```
+    newest=$(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX*.sdk 2>/dev/null \
+        | grep -E 'MacOSX[0-9]+(\.[0-9]+)?\.sdk$' | sort -V | tail -1)
+    echo "${newest:-$(xcrun --show-sdk-path)}"
+```
+export CGO_CFLAGS := "-isysroot " + sdk + " -mmacosx-version-min=14.0"
+export CGO_LDFLAGS := "-isysroot " + sdk + " -mmacosx-version-min=14.0"
+
 # list recipes
 default:
     @just --list
+
+# report which SDK the go builds will link against
+sdk:
+    @echo "{{ sdk }}"
 
 # build both binaries
 build:

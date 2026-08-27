@@ -11,6 +11,14 @@ class Occam < Formula
   depends_on :macos
 
   def install
+    # The macOS 26+ appearance, Liquid Glass included, is gated on the SDK a
+    # binary links against rather than on anything the code does, so build
+    # against the newest one present instead of whatever is on the path.
+    if (sdk = MacOS.sdk_path_if_needed || MacOS.sdk&.path)
+      ENV["CGO_CFLAGS"] = "-isysroot #{sdk} -mmacosx-version-min=14.0"
+      ENV["CGO_LDFLAGS"] = "-isysroot #{sdk} -mmacosx-version-min=14.0"
+    end
+
     # output is pinned so the binary name never follows the formula name.
     system "go", "build", *std_go_args(output:  bin/"occam",
                                        ldflags: "-X github.com/dappermint/occam/cmd.version=#{version}")
