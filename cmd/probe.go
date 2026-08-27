@@ -20,7 +20,13 @@ func newProbe() *cobra.Command {
 		Use:   "probe",
 		Short: "enumerate HID interfaces and report what the dongle exposes",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			devices, err := hid.List()
+			// Matching every vendor needs Input Monitoring, so only ask for
+			// it when the user actually wants the full list.
+			list := func() ([]hid.Info, error) { return hid.ListVendor(hid.Razer) }
+			if all {
+				list = hid.List
+			}
+			devices, err := list()
 			if err != nil && !errors.Is(err, hid.ErrTruncated) {
 				return err
 			}

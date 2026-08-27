@@ -117,6 +117,11 @@ nix build
 
 darwin only. it talks to IOHIDManager through cgo, no hidapi, no vendored C.
 
+no permissions needed, including from the launchd agent. that is deliberate:
+occam never calls `IOHIDManagerOpen`, which is the call that asks for the HID
+event stream and trips Input Monitoring. enumeration and device open do not
+need it.
+
 ## protocol
 
 the dongle exposes one HID interface with four top-level collections. the

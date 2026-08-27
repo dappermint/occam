@@ -9,20 +9,42 @@ package hid
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/hid/IOHIDManager.h>
 
-static IOHIDManagerRef occam_manager_open(void) {
+// A NULL matching dictionary matches every HID device, keyboards included,
+// and asking for keyboards is what makes macOS require Input Monitoring. A
+// process launched from a terminal inherits the terminal's grant and never
+// notices; a launchd agent has no grant and IOHIDManagerOpen simply fails.
+//
+// Passing a vendor id keeps keyboards out of scope, so no permission is
+// needed. vid 0 restores the match-everything behaviour for `probe --all`,
+// which is only ever run interactively.
+static IOHIDManagerRef occam_manager_open(int32_t vid, int32_t *rc) {
 	IOHIDManagerRef mgr = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
 	if (!mgr) return NULL;
-	IOHIDManagerSetDeviceMatching(mgr, NULL);
-	if (IOHIDManagerOpen(mgr, kIOHIDOptionsTypeNone) != kIOReturnSuccess) {
-		CFRelease(mgr);
-		return NULL;
+
+	if (vid == 0) {
+		IOHIDManagerSetDeviceMatching(mgr, NULL);
+	} else {
+		CFMutableDictionaryRef m = CFDictionaryCreateMutable(kCFAllocatorDefault, 0,
+			&kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		if (!m) { CFRelease(mgr); return NULL; }
+		CFNumberRef v = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &vid);
+		CFDictionarySetValue(m, CFSTR(kIOHIDVendorIDKey), v);
+		CFRelease(v);
+		IOHIDManagerSetDeviceMatching(mgr, m);
+		CFRelease(m);
 	}
+
+	// Deliberately no IOHIDManagerOpen. Opening the manager asks for the
+	// event stream, which is the thing Input Monitoring gates: from a launchd
+	// agent it returns kIOReturnNotPermitted and enumeration never happens.
+	// CopyDevices needs only a created, matched manager, and IOHIDDeviceOpen
+	// on a single non-keyboard device is not gated.
+	if (rc) *rc = 0;
 	return mgr;
 }
 
 static void occam_manager_close(IOHIDManagerRef mgr) {
 	if (!mgr) return;
-	IOHIDManagerClose(mgr, kIOHIDOptionsTypeNone);
 	CFRelease(mgr);
 }
 
@@ -224,10 +246,13 @@ type entry struct {
 	ref  C.IOHIDDeviceRef
 }
 
-func enumerate() ([]entry, error) {
-	mgr := C.occam_manager_open()
+// enumerate lists HID interfaces. vid 0 means every vendor, which needs Input
+// Monitoring; pass a real vendor id from anything that runs unattended.
+func enumerate(vid uint16) ([]entry, error) {
+	var rc C.int32_t
+	mgr := C.occam_manager_open(C.int32_t(vid), &rc)
 	if C.occam_mgr_null(mgr) != 0 {
-		return nil, errors.New("hid: IOHIDManagerOpen failed")
+		return nil, fmt.Errorf("hid: IOHIDManagerOpen: %s", ioReturn(int(rc)))
 	}
 	defer C.occam_manager_close(mgr)
 
@@ -308,9 +333,20 @@ func readStr(ref C.IOHIDDeviceRef, kind C.int) string {
 	return string(buf)
 }
 
-// List returns every HID interface IOHIDManager can see.
+// List returns every HID interface IOHIDManager can see. It matches all
+// vendors, so it needs Input Monitoring and is for interactive use; unattended
+// callers want ListVendor.
 func List() ([]Info, error) {
-	entries, err := enumerate()
+	return listVendor(0)
+}
+
+// ListVendor lists one vendor's interfaces and needs no permission.
+func ListVendor(vid uint16) ([]Info, error) {
+	return listVendor(vid)
+}
+
+func listVendor(vid uint16) ([]Info, error) {
+	entries, err := enumerate(vid)
 	out := make([]Info, 0, len(entries))
 	for _, e := range entries {
 		out = append(out, e.info)
@@ -323,7 +359,7 @@ func List() ([]Info, error) {
 // that is present rather than the first device enumerated. The interface is
 // opened shared, not seized, so the system HID driver keeps working.
 func Open(vid uint16, pids ...uint16) (*Device, error) {
-	entries, err := enumerate()
+	entries, err := enumerate(vid)
 	if err != nil && len(entries) == 0 {
 		return nil, err
 	}
@@ -524,7 +560,13 @@ func ioReturn(rc int) string {
 	case 0xE00002C2:
 		return "kIOReturnExclusiveAccess (another process seized the interface)"
 	case 0xE00002C1:
-		return "kIOReturnNotPrivileged (permission denied)"
+		return "kIOReturnNotPrivileged (needs Input Monitoring)"
+	case 0xE00002E2:
+		return "kIOReturnNotPermitted (blocked by TCC)"
+	case 0xE00002BD:
+		return "kIOReturnNoMemory"
+	case 0xE00002C0:
+		return "kIOReturnNotFound"
 	case 0xE00002BC:
 		return "kIOReturnError"
 	case 0xE00002C7:

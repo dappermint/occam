@@ -17,7 +17,7 @@ import (
 // enumeration rather than an IOKit match notification: it costs microseconds
 // and there is no callback lifetime to get wrong.
 func present() bool {
-	devices, err := hid.List()
+	devices, err := hid.ListVendor(hid.Razer)
 	if err != nil && len(devices) == 0 {
 		return false
 	}

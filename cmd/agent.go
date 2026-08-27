@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -119,11 +120,20 @@ func newAgentInstall() *cobra.Command {
 			}
 
 			// bootout first so a reinstall replaces cleanly. It fails when
-			// nothing is loaded, which is fine.
-			target := fmt.Sprintf("gui/%d/%s", os.Getuid(), agentLabel)
-			_ = exec.Command("launchctl", "bootout", target).Run()
-			out, err := exec.Command("launchctl", "bootstrap",
-				fmt.Sprintf("gui/%d", os.Getuid()), plistPath).CombinedOutput()
+			// nothing is loaded, which is fine. Unloading is not instant
+			// though, and bootstrapping over a job still going down fails with
+			// "Bootstrap failed: 5: Input/output error", so retry briefly.
+			domain := fmt.Sprintf("gui/%d", os.Getuid())
+			_ = exec.Command("launchctl", "bootout", domain+"/"+agentLabel).Run()
+
+			var out []byte
+			for attempt := 1; attempt <= 5; attempt++ {
+				out, err = exec.Command("launchctl", "bootstrap", domain, plistPath).CombinedOutput()
+				if err == nil {
+					break
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
 			if err != nil {
 				return fmt.Errorf("launchctl bootstrap: %w: %s", err, strings.TrimSpace(string(out)))
 			}
