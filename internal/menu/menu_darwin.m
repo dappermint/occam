@@ -5,6 +5,7 @@
 // Implemented in Go, see menu_darwin.go.
 extern void occamMenuSelect(int tag);
 extern void occamMenuWillOpen(void);
+extern void occamMenuValue(int tag, int value);
 
 @interface OccamMenuTarget : NSObject <NSMenuDelegate>
 @end
@@ -23,6 +24,16 @@ static OccamMenuTarget *gTarget = nil;
 
 - (void)itemClicked:(id)sender {
 	occamMenuSelect((int)[(NSMenuItem *)sender tag]);
+}
+
+- (void)sliderMoved:(id)sender {
+	NSSlider *s = (NSSlider *)sender;
+	occamMenuValue((int)s.tag, (int)lround(s.doubleValue));
+}
+
+- (void)segmentPicked:(id)sender {
+	NSSegmentedControl *c = (NSSegmentedControl *)sender;
+	occamMenuValue((int)c.tag, (int)c.selectedSegment);
 }
 
 @end
@@ -101,6 +112,112 @@ void occam_menu_add_section(const char *title) {
 		NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:t action:nil keyEquivalent:@""];
 		[item setEnabled:NO];
 		[gMenu addItem:item];
+	}
+}
+
+// Sizes a control row to itself, with a floor so it does not read as narrower
+// than the plain rows above it.
+// Both control rows share a width so the noise segments and the level slider
+// line up under each other.
+#define OCCAM_ROW_WIDTH 252.0
+#define OCCAM_ROW_INSET 14.0
+
+static void occam_menu_add_row(NSStackView *row, int tag) {
+	NSSize fit = row.fittingSize;
+	row.frame = NSMakeRect(0, 0, MAX(fit.width, OCCAM_ROW_WIDTH), MAX(fit.height, 28.0));
+
+	NSMenuItem *item = [[NSMenuItem alloc] init];
+	item.view = row;
+	item.tag = tag;
+	[gMenu addItem:item];
+}
+
+// The menu is only rebuilt on open, so a row whose relevance changes under a
+// click has to be hidden in place.
+void occam_menu_set_row_hidden(int tag, int hidden) {
+	@autoreleasepool {
+		for (NSMenuItem *item in gMenu.itemArray) {
+			if (item.tag == tag && item.view) {
+				item.hidden = hidden ? YES : NO;
+				return;
+			}
+		}
+	}
+}
+
+// A control inside a menu item's own view, the way the Sound menu carries its
+// volume slider. A plain menu row cannot hold one.
+void occam_menu_add_slider(const char *label, int tag, double lo, double hi,
+                           double value, int enabled) {
+	@autoreleasepool {
+		NSTextField *name = [NSTextField labelWithString:
+			[NSString stringWithUTF8String:label]];
+		name.font = [NSFont menuFontOfSize:0];
+		name.textColor = enabled ? [NSColor labelColor] : [NSColor tertiaryLabelColor];
+
+		NSSlider *slider = [NSSlider sliderWithValue:value minValue:lo maxValue:hi
+		                                      target:gTarget
+		                                      action:@selector(sliderMoved:)];
+		slider.tag = tag;
+		slider.enabled = enabled ? YES : NO;
+		slider.continuous = NO;
+		slider.numberOfTickMarks = (int)(hi - lo) + 1;
+		slider.allowsTickMarkValuesOnly = YES;
+		slider.controlSize = NSControlSizeRegular;
+		[slider setContentHuggingPriority:NSLayoutPriorityDefaultLow
+		                   forOrientation:NSLayoutConstraintOrientationHorizontal];
+
+		NSStackView *row = [NSStackView stackViewWithViews:@[name, slider]];
+		row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+		row.spacing = 10;
+		row.edgeInsets = NSEdgeInsetsMake(3, OCCAM_ROW_INSET, 3, OCCAM_ROW_INSET);
+		occam_menu_add_row(row, tag);
+	}
+}
+
+// Labels double as tooltips: the icons carry the row on their own, but a
+// glyph alone is not something to make anyone guess at.
+void occam_menu_add_segments(const char **labels, const char **symbols, int count,
+                             int tag, int selected) {
+	@autoreleasepool {
+		NSSegmentedControl *seg = [[NSSegmentedControl alloc] initWithFrame:NSZeroRect];
+		seg.segmentStyle = NSSegmentStyleRounded;
+		seg.trackingMode = NSSegmentSwitchTrackingSelectOne;
+		seg.target = gTarget;
+		seg.action = @selector(segmentPicked:);
+		seg.tag = tag;
+		seg.font = [NSFont menuFontOfSize:0];
+		seg.controlSize = NSControlSizeLarge;
+		seg.segmentCount = count;
+
+		// Filling the row rather than hugging three glyphs: at natural width
+		// the control read as a stray cluster against the menu's own width.
+		CGFloat segWidth = (OCCAM_ROW_WIDTH - OCCAM_ROW_INSET * 2) / (CGFloat)count;
+		NSImageSymbolConfiguration *big = [NSImageSymbolConfiguration
+			configurationWithPointSize:15 weight:NSFontWeightRegular
+			                     scale:NSImageSymbolScaleMedium];
+		for (int i = 0; i < count; i++) {
+			NSString *label = [NSString stringWithUTF8String:labels[i]];
+			NSImage *icon = symbols ? [NSImage
+				imageWithSystemSymbolName:[NSString stringWithUTF8String:symbols[i]]
+				 accessibilityDescription:label] : nil;
+			if (icon) {
+				[seg setImage:[icon imageWithSymbolConfiguration:big] forSegment:i];
+				[seg setImageScaling:NSImageScaleProportionallyDown forSegment:i];
+			} else {
+				[seg setLabel:label forSegment:i];
+			}
+			[seg setToolTip:label forSegment:i];
+			[seg setWidth:segWidth forSegment:i];
+		}
+		if (selected >= 0 && selected < count) {
+			seg.selectedSegment = selected;
+		}
+
+		NSStackView *row = [NSStackView stackViewWithViews:@[seg]];
+		row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+		row.edgeInsets = NSEdgeInsetsMake(3, OCCAM_ROW_INSET, 5, OCCAM_ROW_INSET);
+		occam_menu_add_row(row, tag);
 	}
 }
 

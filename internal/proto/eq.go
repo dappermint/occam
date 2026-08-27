@@ -179,6 +179,8 @@ type ANCMode struct {
 	// Level is whether the strength applies here. Only 0x01 uses it; the
 	// other two ignore a level write and keep the last 0x01 value.
 	Level bool
+	// Symbol is the SF Symbol for this mode in a segmented picker.
+	Symbol string
 }
 
 // ANCModes are the three states the earcup button cycles through.
@@ -190,9 +192,18 @@ type ANCMode struct {
 // The level only bites in mode 0x01. Writing one under the other two is
 // ignored and the device keeps its last 0x01 value.
 var ANCModes = []ANCMode{
-	{0x00, "Off", false},
-	{0x01, "Noise cancelling", true},
-	{0x50, "Ambient", false},
+	{0x00, "Off", false, "circle.slash"},
+	{0x01, "Noise cancelling", true, "waveform.slash"},
+	{0x50, "Ambient", false, "ear"},
+}
+
+// ANCModeSymbols lists the SF Symbols in the same order as ANCModeNames.
+func ANCModeSymbols() []string {
+	out := make([]string, len(ANCModes))
+	for i, m := range ANCModes {
+		out[i] = m.Symbol
+	}
+	return out
 }
 
 // ANCModeNames lists them for a picker.

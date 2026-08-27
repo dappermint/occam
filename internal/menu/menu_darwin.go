@@ -19,7 +19,12 @@ void occam_menu_set_title(const char *title);
 void occam_menu_clear(void);
 void occam_menu_add(const char *title, int tag, int checked, int enabled);
 void occam_menu_add_section(const char *title);
+void occam_menu_add_slider(const char *label, int tag, double lo, double hi,
+                           double value, int enabled);
+void occam_menu_add_segments(const char **labels, const char **symbols, int count,
+                             int tag, int selected);
 void occam_menu_add_separator(void);
+void occam_menu_set_row_hidden(int tag, int hidden);
 void occam_menu_run(void);
 void occam_menu_quit(void);
 */
@@ -39,6 +44,15 @@ type Item struct {
 	Disabled  bool
 	Separator bool
 	Section   bool
+	// Slider turns the row into a labelled control, using Min, Max and Value.
+	Slider bool
+	Min    int
+	Max    int
+	Value  int
+	// Segments turns the row into a picker, with Value as the chosen index.
+	// Symbols, when present, replace the labels with SF Symbols.
+	Segments []string
+	Symbols  []string
 }
 
 // Sep is a separator row.
@@ -47,12 +61,27 @@ func Sep() Item { return Item{Separator: true} }
 // Section is a system-drawn section header.
 func Section(title string) Item { return Item{Title: title, Section: true} }
 
+// Segments is a segmented picker row, the shape Apple uses for noise control.
+// Symbols may be nil, which falls back to the labels.
+func Segments(tag int, labels, symbols []string, selected int) Item {
+	return Item{Tag: tag, Segments: labels, Symbols: symbols, Value: selected}
+}
+
+// Slider is a labelled slider row. Tag identifies it to the slide callback.
+func Slider(title string, tag, min, max, value int, enabled bool) Item {
+	return Item{
+		Title: title, Tag: tag, Slider: true,
+		Min: min, Max: max, Value: value, Disabled: !enabled,
+	}
+}
+
 // AppKit gives no way to pass a Go pointer through a menu action, so the one
 // live menu lives here. There is only ever one status item.
 var (
 	mu      sync.Mutex
 	build   func() []Item
 	onClick func(tag int)
+	onValue func(tag, value int)
 	running bool
 )
 
@@ -82,6 +111,20 @@ func Run(symbol, fallback string, buildFn func() []Item, clickFn func(tag int)) 
 	render()
 	C.occam_menu_run()
 	return nil
+}
+
+// SetRowHidden shows or hides a slider or segmented row without rebuilding the
+// menu, for when a click changes whether a later row applies.
+func SetRowHidden(tag int, hidden bool) {
+	C.occam_menu_set_row_hidden(C.int(tag), cbool(hidden))
+}
+
+// OnValue registers the handler for slider and segmented rows. Separate from
+// Run's click handler because those carry a value the tag cannot.
+func OnValue(fn func(tag, value int)) {
+	mu.Lock()
+	onValue = fn
+	mu.Unlock()
 }
 
 // SetSymbol puts an SF Symbol in the menu bar as a template image, so it
@@ -124,6 +167,19 @@ func render() {
 			C.free(unsafe.Pointer(h))
 			continue
 		}
+		if len(it.Segments) > 0 {
+			labels, freeLabels := cStrings(it.Segments)
+			symbols, freeSymbols := cStrings(it.Symbols)
+			if len(it.Symbols) != len(it.Segments) {
+				symbols = nil
+			}
+			C.occam_menu_add_segments(labels, symbols, C.int(len(it.Segments)),
+				C.int(it.Tag), C.int(it.Value))
+			freeSymbols()
+			freeLabels()
+			continue
+		}
+
 		c := C.CString(it.Title)
 		enabled, checked := C.int(1), C.int(0)
 		if it.Disabled {
@@ -132,9 +188,25 @@ func render() {
 		if it.Checked {
 			checked = 1
 		}
-		C.occam_menu_add(c, C.int(it.Tag), checked, enabled)
+		if it.Slider {
+			C.occam_menu_add_slider(c, C.int(it.Tag), C.double(it.Min), C.double(it.Max),
+				C.double(it.Value), enabled)
+		} else {
+			C.occam_menu_add(c, C.int(it.Tag), checked, enabled)
+		}
 		C.free(unsafe.Pointer(c))
 	}
+}
+
+//export occamMenuValue
+func occamMenuValue(tag, value C.int) {
+	mu.Lock()
+	fn := onValue
+	mu.Unlock()
+	if fn == nil {
+		return
+	}
+	go fn(int(tag), int(value))
 }
 
 //export occamMenuWillOpen

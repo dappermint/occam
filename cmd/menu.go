@@ -22,8 +22,11 @@ const (
 	tagInert
 )
 
-// ANC modes occupy tagANCBase upward, one per proto.ANCModes entry.
-const tagANCBase = 110
+// Tags for the two noise rows in the status menu.
+const (
+	tagANCBase  = 110
+	tagANCLevel = 130
+)
 
 // view is one immutable read of the device state. The menu is built on
 // AppKit's main thread and must not touch the device, so it renders one of
@@ -173,16 +176,6 @@ func newMenu() *cobra.Command {
 						_ = selectSlot(dev, byte(tag))
 						dev.Close()
 					}
-				case tag >= tagANCBase && tag < tagANCBase+len(proto.ANCModes):
-					// The level only bites in mode 1, and the device keeps its
-					// own copy, so carry the one we last read rather than
-					// resetting it every time the mode changes.
-					if v, ok := proto.ANCModeValue(tag - tagANCBase); ok {
-						if dev, err := hid.Open(hid.Razer, hid.BlackSharkV3Pro...); err == nil {
-							_, _ = ask(dev, proto.SetANC(v, byte(st.snapshot().ancLevel)))
-							dev.Close()
-						}
-					}
 				case tag == tagRefresh:
 					// the refresh below is the whole job
 				case tag == tagQuit:
@@ -193,6 +186,40 @@ func newMenu() *cobra.Command {
 			}
 
 			names := slotNames(p)
+			// Both noise rows land here: the segments carry a mode and keep
+			// the level, the slider carries a level and keeps the mode.
+			menu.OnValue(func(tag, value int) {
+				cur := st.snapshot()
+				var mode byte
+				level := cur.ancLevel
+
+				switch tag {
+				case tagANCBase:
+					v, ok := proto.ANCModeValue(value)
+					if !ok {
+						return
+					}
+					mode = v
+				case tagANCLevel:
+					v, ok := proto.ANCModeValue(cur.ancMode)
+					if !ok {
+						return
+					}
+					mode, level = v, value
+				default:
+					return
+				}
+
+				if dev, err := hid.Open(hid.Razer, hid.BlackSharkV3Pro...); err == nil {
+					_, _ = ask(dev, proto.SetANC(mode, byte(level)))
+					dev.Close()
+				}
+				st.refresh()
+
+				shown := proto.ANCLevelApplies(st.snapshot().ancMode)
+				menu.RunOnMain(func() { menu.SetRowHidden(tagANCLevel, !shown) })
+			})
+
 			menu.BuildWindow(bandLabels(), bandMin, bandMax, menu.WindowHandlers{
 				OnBand:       ed.setBand,
 				OnMicBand:    ed.setMicBand,
@@ -254,13 +281,13 @@ func items(st *state, names map[int]string) []menu.Item {
 		})
 	}
 
-	out = append(out, menu.Section("Noise"))
-	for i, m := range proto.ANCModes {
-		out = append(out, menu.Item{
-			Title:   m.Name,
-			Tag:     tagANCBase + i,
-			Checked: i == s.ancMode,
-		})
+	out = append(out,
+		menu.Section("Noise"),
+		menu.Segments(tagANCBase, proto.ANCModeNames(), proto.ANCModeSymbols(), s.ancMode),
+	)
+	if proto.ANCLevelApplies(s.ancMode) {
+		out = append(out, menu.Slider("Level", tagANCLevel,
+			proto.ANCLevelMin, proto.ANCLevelMax, s.ancLevel, true))
 	}
 
 	if s.lastErr != nil {
