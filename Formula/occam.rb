@@ -33,7 +33,7 @@ class Occam < Formula
       system "cargo", "install", *std_cargo_args
     end
 
-    doc.install "README.md", "docs/protocol.md", "docs/design.md"
+    doc.install "README.md"
   end
 
   # Runs the menu bar app, which also re-applies the saved profile whenever the
