@@ -92,6 +92,19 @@ formula:
 spatial file layout='7.1.4':
     go run ./cmd/occam-spatial --upmix {{ layout }} {{ file }}
 
+# convert any audio to the 48k wav the measured hrirs need, then render it.
+# nixpkgs ffmpeg-full because the homebrew build has no soxr, and resampling
+# 44.1 to 48 badly undoes the point of using measured impulses.
+listen file start='0' length='180':
+    nix shell nixpkgs#ffmpeg-full -c ffmpeg -v error -y \
+        -ss {{ start }} -t {{ length }} -i {{ file }} \
+        -af "aresample=48000:resampler=soxr:precision=28:dither_method=triangular" \
+        -c:a pcm_s24le /tmp/occam-listen-src.wav
+    go run ./cmd/occam-spatial --upmix 7.1.4 -o /tmp/occam-listen-binaural.wav /tmp/occam-listen-src.wav
+    @echo
+    @echo "reference: /tmp/occam-listen-src.wav"
+    @echo "binaural:  /tmp/occam-listen-binaural.wav"
+
 # regenerate the embedded hrir blob from a downloaded sofa file
 hrir:
     @echo "get D1_HRIR_SOFA.zip from https://zenodo.org/records/12092466"
