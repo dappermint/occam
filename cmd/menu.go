@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"log"
-	"os"
 	"sync"
 	"time"
 
@@ -16,8 +15,7 @@ import (
 
 // Menu tags. Slots take 0 through proto.Slots-1, so actions start above that.
 const (
-	tagReapply = 100 + iota
-	tagSave
+	tagWindow = 100 + iota
 	tagRefresh
 	tagQuit
 	tagInert
@@ -148,23 +146,23 @@ func newMenu() *cobra.Command {
 				}
 			}()
 
+			resolved, _ := profilePath(path)
+			ed := newEditor(slotNames(p), resolved)
+
 			click := func(tag int) {
 				switch {
+				case tag == tagWindow:
+					st.refresh()
+					ed.load(st)
+					menu.RunOnMain(menu.ShowWindow)
+					return
 				case tag >= 0 && tag < proto.Slots:
 					if dev, err := hid.Open(hid.Razer, hid.BlackSharkV3Pro...); err == nil {
 						_ = selectSlot(dev, byte(tag))
 						dev.Close()
 					}
-				case tag == tagReapply:
-					if _, err := applyOnce(p); err != nil {
-						st.mu.Lock()
-						st.v.lastErr = err
-						st.mu.Unlock()
-					}
-				case tag == tagSave:
-					saveFromDevice(path, st)
 				case tag == tagRefresh:
-					// handled by the refresh below
+					// the refresh below is the whole job
 				case tag == tagQuit:
 					menu.Quit()
 					return
@@ -173,6 +171,21 @@ func newMenu() *cobra.Command {
 			}
 
 			names := slotNames(p)
+			menu.BuildWindow(bandLabels(), bandMin, bandMax, menu.WindowHandlers{
+				OnBand:     ed.setBand,
+				OnSlot:     func(slot int) { ed.selectSlotFromWindow(slot, st) },
+				OnSidetone: ed.setSidetone,
+				OnAction: func(tag int) {
+					switch tag {
+					case menu.ActionSave:
+						ed.saveToProfile(st)
+					case menu.ActionReload:
+						st.refresh()
+						ed.load(st)
+					}
+				},
+			})
+
 			if err := menu.Run("headphones", "occam", func() []menu.Item { return items(st, names) }, click); err != nil {
 				return err
 			}
@@ -183,9 +196,8 @@ func newMenu() *cobra.Command {
 	return c
 }
 
-// items mirrors Synapse's own layout for this device: a Sound section holding
-// the slots, then the active curve. Band frequencies are Razer's, read out of
-// the product page logs.
+// items is deliberately small: battery at a glance, and switching preset.
+// Everything editable lives in the window, opened from here.
 func items(st *state, names map[int]string) []menu.Item {
 	s := st.snapshot()
 
@@ -199,11 +211,9 @@ func items(st *state, names map[int]string) []menu.Item {
 	}
 
 	out := []menu.Item{
-		{Title: "BlackShark V3 Pro", Tag: tagInert, Disabled: true},
 		{Title: powerLine(s), Tag: tagInert, Disabled: true},
-		menu.Section("Sound"),
+		menu.Section("Equalizer"),
 	}
-
 	for i := range s.slots {
 		out = append(out, menu.Item{
 			Title:   slotName(i, names),
@@ -212,35 +222,14 @@ func items(st *state, names map[int]string) []menu.Item {
 		})
 	}
 
-	if s.active >= 0 && s.active < len(s.slots) {
-		out = append(out, menu.Section("Equalizer"))
-		for _, r := range s.slots[s.active].EQ.Rows() {
-			out = append(out, menu.Item{
-				Title:    fmt.Sprintf("%-6s %+d dB", r.Label, r.Level),
-				Tag:      tagInert,
-				Disabled: true,
-			})
-		}
-	}
-
 	if s.lastErr != nil {
 		out = append(out, menu.Sep(),
-			menu.Item{Title: truncate(s.lastErr.Error(), 48), Tag: tagInert, Disabled: true})
+			menu.Item{Title: truncate(s.lastErr.Error(), 44), Tag: tagInert, Disabled: true})
 	}
 
-	out = append(out, menu.Sep())
-	if !s.lastApply.IsZero() {
-		out = append(out, menu.Item{
-			Title:    "Applied at " + s.lastApply.Format("15:04"),
-			Tag:      tagInert,
-			Disabled: true,
-		})
-	}
 	return append(out,
-		menu.Item{Title: "Re-apply Profile", Tag: tagReapply},
-		menu.Item{Title: "Save Current to Profile", Tag: tagSave},
-		menu.Item{Title: "Refresh", Tag: tagRefresh},
 		menu.Sep(),
+		menu.Item{Title: "Settings…", Tag: tagWindow},
 		menu.Item{Title: "Quit occam", Tag: tagQuit},
 	)
 }
@@ -255,14 +244,16 @@ func slotName(i int, names map[int]string) string {
 	return fmt.Sprintf("EQ %d", i+1)
 }
 
+// powerLine is the one status row the menu keeps. 0xFF is what the device
+// reports before it has a reading.
 func powerLine(s view) string {
 	switch {
 	case s.battery < 0 || s.battery > 100:
-		return s.transport + ", battery unknown"
+		return "Battery unknown"
 	case s.charging:
-		return fmt.Sprintf("%s, %d%% charging", s.transport, s.battery)
+		return fmt.Sprintf("Battery %d%%, charging", s.battery)
 	default:
-		return fmt.Sprintf("%s, %d%%", s.transport, s.battery)
+		return fmt.Sprintf("Battery %d%%", s.battery)
 	}
 }
 
@@ -279,31 +270,4 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n-1] + "…"
-}
-
-func saveFromDevice(override string, st *state) {
-	resolved, err := profilePath(override)
-	if err != nil {
-		return
-	}
-	s := st.snapshot()
-	if !s.connected {
-		return
-	}
-
-	existing := map[int]string{}
-	if old, err := profile.Load(resolved); err == nil {
-		for _, sl := range old.Slots {
-			existing[sl.Index] = sl.Name
-		}
-	}
-
-	p := profile.New()
-	p.Active = s.active
-	for i, sl := range s.slots {
-		p.Slots = append(p.Slots, profile.FromEQ(i, existing[i], sl.EQ))
-	}
-	if err := profile.Save(resolved, p); err != nil {
-		fmt.Fprintln(os.Stderr, "save:", err)
-	}
 }

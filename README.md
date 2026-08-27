@@ -55,45 +55,42 @@ devices, so that is two volume sliders, not a protocol feature.
 
 firmware flashing is a hard non-goal. no DFU, no bootloader, ever.
 
-## menu bar
+## menu bar and window
 
 ```
 occam menu
 ```
 
-an NSStatusItem, no .app bundle: `NSApplicationActivationPolicyAccessory`
-keeps it out of the dock, which is all a bundle would have bought. the icon is
-the `headphones` SF Symbol as a template image, so it tracks light, dark and
-highlight states.
-
-the layout follows synapse's own for this device, section names and band
-frequencies included, both read out of the product page logs:
+two pieces, split by what you are doing. the menu bar is for glancing and
+switching; editing happens in a window.
 
 ```
-Razer BlackShark V3 Pro
-  dongle, 87%
-──────────────
-SOUND
-✓ Custom 0
-  Preset 1
-  ...
-──────────────
-EQUALIZER
-  31Hz   +0 dB
-  63Hz   +0 dB
-  125Hz  +3 dB
-  ...
-──────────────
-Re-apply Profile
-Save Current to Profile
+Battery 87%
+── Equalizer ──────
+   EQ 1
+ ✓ EQ 4
+   EQ 7
+───────────────────
+Settings…
 Quit occam
 ```
+
+**Settings…** opens a real AppKit window: a preset picker, ten sliders labelled
+with razer's own band frequencies (31Hz through 16kHz), and sidetone. slider
+drags are coalesced and written 250ms after you stop moving, since each write
+is three bracketed frames at 30ms apiece.
+
+no `.app` bundle. `NSApplicationActivationPolicyAccessory` keeps it out of the
+dock, `NSMenuItem.sectionHeaderWithTitle` draws the section headers the way the
+system does, and the icon is the `headphones` SF Symbol as a template image so
+it tracks light, dark and highlight states.
 
 it does everything `occam watch` does, so `occam agent install` runs this and
 starts it at login. `KeepAlive` is deliberately off: quitting from the menu
 should quit.
 
-slot names come from your profile, so rename them there and the menu follows:
+slot names come from your profile, so rename them there and both the menu and
+the picker follow:
 
 ```toml
 [[slot]]
