@@ -19,82 +19,85 @@ import (
 //   - what they disagree on is ambience, so it feeds surrounds and heights
 //   - the difference signal is decorrelated per output so the rear pair does
 //     not collapse back into a single phantom behind the head
-func Upmix(in Audio, target Layout) (Audio, error) {
-	if len(in.Channels) != 2 {
-		return Audio{}, fmt.Errorf("spatial: upmix takes stereo, got %d channels", len(in.Channels))
+//
+// Upmixer holds the filter state a stereo-to-surround matrix needs across
+// blocks: the LFE lowpass and one decorrelator per ambience output.
+type Upmixer struct {
+	target   Layout
+	lp1, lp2 onePole
+	decor    []*allpass // nil where a channel is left correlated
+}
+
+// NewUpmixer prepares one for a target layout.
+func NewUpmixer(target Layout, rate int) *Upmixer {
+	u := &Upmixer{
+		target: target,
+		lp1:    newOnePole(lfeCutoff, rate),
+		lp2:    newOnePole(lfeCutoff, rate),
+		decor:  make([]*allpass, target.Channels()),
 	}
-	if target.Channels() <= 2 {
-		return in, nil
-	}
-
-	frames := in.Frames()
-	out := NewAudio(in.Rate, target.Channels(), frames)
-
-	l, r := in.Channels[0], in.Channels[1]
-
-	// Mid and side. Mid is what is common to both and reads as frontal;
-	// side is what differs and reads as ambience.
-	mid := make([]float64, frames)
-	side := make([]float64, frames)
-	for i := range frames {
-		mid[i] = (l[i] + r[i]) * 0.5
-		side[i] = (l[i] - r[i]) * 0.5
-	}
-
-	// Bass for the LFE, since a subwoofer feed should not carry the whole
-	// spectrum. Two poles is enough for a bed channel.
-	lp1 := newOnePole(120, in.Rate)
-	lp2 := newOnePole(120, in.Rate)
-
-	// Each surround and height output gets its own decorrelator, otherwise
-	// four channels carrying the same side signal fuse into one phantom.
-	decor := make(map[int]*allpass, target.Channels())
 	seed := 0
 	for i, s := range target.Speakers {
-		if s.LFE || math.Abs(s.Azimuth) <= 90 && s.Elevation == 0 {
+		if s.LFE || isFrontal(s) {
 			continue
 		}
 		seed++
-		decor[i] = newAllpass(in.Rate, seed)
+		u.decor[i] = newAllpass(rate, seed)
 	}
+	return u
+}
 
-	for i := range frames {
-		for c, s := range target.Speakers {
+// isFrontal reports whether a speaker keeps the original channel rather than
+// carrying synthesised ambience.
+func isFrontal(s Speaker) bool {
+	return math.Abs(s.Azimuth) <= 90 && s.Elevation == 0
+}
+
+// lfeCutoff is where the synthesised low frequency feed is filtered. A
+// subwoofer bed should not carry the whole spectrum.
+const lfeCutoff = 120
+
+// Block expands n frames of stereo into the target layout, writing into out.
+func (u *Upmixer) Block(l, r []float64, out [][]float64, n int) {
+	for i := range n {
+		mid := (l[i] + r[i]) * 0.5
+		side := (l[i] - r[i]) * 0.5
+		lfe := u.lp2.process(u.lp1.process(mid))
+
+		for c, s := range u.target.Speakers {
 			var v float64
 			switch {
 			case s.LFE:
-				v = lp2.process(lp1.process(mid[i])) * 0.8
+				v = lfe * 0.8
 
 			case s.Name == "C":
-				// Centre is the shared content, at -3 dB so it does not
-				// double up against the front pair.
-				v = mid[i] * 0.707
+				// Shared content, at -3 dB so it does not double up against
+				// the front pair.
+				v = mid * 0.707
 
 			case s.Elevation > 0:
-				// Heights take ambience, quieter: inventing a ceiling out of
-				// a stereo file goes wrong fast if it is loud.
-				v = side[i] * 0.35
+				// Heights take ambience, quietly: inventing a ceiling from a
+				// stereo file goes wrong fast if it is loud.
+				v = side * 0.35
 				if s.Azimuth < 0 {
 					v = -v
 				}
 
 			case math.Abs(s.Azimuth) > 90:
-				// Rear surrounds: ambience at moderate level.
-				v = side[i] * 0.5
+				v = side * 0.5
 				if s.Azimuth < 0 {
 					v = -v
 				}
 
 			case math.Abs(s.Azimuth) == 90:
-				// Side surrounds sit between the front and the rear, so they
-				// get a bit of both.
-				v = side[i]*0.45 + mid[i]*0.15
+				// Side surrounds sit between front and rear, so they get some
+				// of both.
+				v = side*0.45 + mid*0.15
 				if s.Azimuth < 0 {
 					v = -v
 				}
 
 			default:
-				// Front left and right keep the original channel.
 				if s.Azimuth < 0 {
 					v = l[i]
 				} else {
@@ -102,12 +105,25 @@ func Upmix(in Audio, target Layout) (Audio, error) {
 				}
 			}
 
-			if d, ok := decor[c]; ok {
+			if d := u.decor[c]; d != nil {
 				v = d.process(v)
 			}
-			out.Channels[c][i] = v
+			out[c][i] = v
 		}
 	}
+}
+
+// Upmix expands a whole stereo buffer in one go. Convenience over Upmixer for
+// callers that already hold the entire signal.
+func Upmix(in Audio, target Layout) (Audio, error) {
+	if len(in.Channels) != 2 {
+		return Audio{}, fmt.Errorf("spatial: upmix takes stereo, got %d channels", len(in.Channels))
+	}
+	if target.Channels() <= 2 {
+		return in, nil
+	}
+	out := NewAudio(in.Rate, target.Channels(), in.Frames())
+	NewUpmixer(target, in.Rate).Block(in.Channels[0], in.Channels[1], out.Channels, in.Frames())
 	return out, nil
 }
 

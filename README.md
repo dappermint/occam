@@ -215,6 +215,9 @@ the head is real: **SADIE II subject D1**, a neumann ku100 dummy head, 48 khz,
 26 kb, each one an exact measured position rather than an interpolation. see
 `internal/spatial/hrir/LICENSE-SADIE.md`.
 
+it streams, so a whole album costs about 5 mb of memory rather than gigabytes,
+and runs around 9x realtime.
+
 input has to be a 48 khz wav, since that is what the impulses were measured at
 and resampling a 256-tap impulse smears the timing that carries localisation.
 `just listen <file>` converts anything to that with soxr and renders it, using

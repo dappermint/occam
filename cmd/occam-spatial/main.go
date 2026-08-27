@@ -8,6 +8,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"time"
@@ -30,7 +32,7 @@ func run() error {
 		upmixTo    = flag.String("upmix", "", "upmix stereo to this layout first: 5.1, 7.1, 7.1.4")
 		out        = flag.String("o", "", "output path, defaults to <input>-binaural.wav")
 		modelName  = flag.String("model", "measured", "head model: measured (SADIE II KU100) or synthetic")
-		peak       = flag.Float64("peak", 0.95, "normalise the result to this peak, 0 to leave it alone")
+		gainDB     = flag.Float64("gain", 0, "gain in dB applied to the render, for level matching")
 		showVer    = flag.Bool("version", false, "print the version")
 	)
 	flag.Usage = usage
@@ -46,79 +48,111 @@ func run() error {
 	}
 	inPath := flag.Arg(0)
 
-	started := time.Now()
-	in, err := spatial.ReadWAV(inPath)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("  in       %s, %d ch, %d Hz, %.1fs\n",
-		filepath.Base(inPath), len(in.Channels), in.Rate,
-		float64(in.Frames())/float64(in.Rate))
-
-	// Upmix first when asked, so the renderer always sees a real layout.
-	layout, err := resolveLayout(*layoutName, in)
-	if err != nil {
-		return err
-	}
-	if *upmixTo != "" {
-		target, err := spatial.LayoutByName(*upmixTo)
-		if err != nil {
-			return err
-		}
-		if in, err = spatial.Upmix(in, target); err != nil {
-			return err
-		}
-		layout = target
-		fmt.Printf("  upmix    stereo to %s, %d ch\n", target.Name, target.Channels())
-	}
-
-	fmt.Printf("  layout   %s\n", layout.Name)
-	for _, s := range layout.Speakers {
-		if s.LFE {
-			fmt.Printf("           %-4s low frequency\n", s.Name)
-			continue
-		}
-		fmt.Printf("           %-4s az %+.0f  el %+.0f\n", s.Name, s.Azimuth, s.Elevation)
-	}
-
 	model, err := spatial.ModelByName(*modelName)
 	if err != nil {
 		return err
 	}
-	renderer, err := spatial.NewRenderer(layout, in.Rate, model)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("  model    %s\n", renderer.Model())
 
-	rendered, err := renderer.Render(in)
+	started := time.Now()
+	src, err := spatial.OpenWAV(inPath)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("  peak     %.3f before normalising\n", spatial.Peak(rendered))
-	if *peak > 0 {
-		spatial.Normalize(rendered, *peak)
+	defer src.Close()
+
+	fmt.Printf("  in       %s, %d ch, %d Hz, %.1fs\n",
+		filepath.Base(inPath), src.Channels, src.Rate,
+		float64(src.Frames())/float64(src.Rate))
+
+	target, err := resolveTarget(*layoutName, *upmixTo, src)
+	if err != nil {
+		return err
 	}
+	if src.Channels != 2 && target.Channels() != src.Channels {
+		return fmt.Errorf("occam-spatial: input has %d channels, cannot render it as %s",
+			src.Channels, target.Name)
+	}
+
+	pipe, err := spatial.NewPipeline(target, src.Rate, blockFrames, model)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("  layout   %s\n  model    %s\n", target.Name, pipe.Model())
 
 	outPath := *out
 	if outPath == "" {
 		ext := filepath.Ext(inPath)
 		outPath = inPath[:len(inPath)-len(ext)] + "-binaural.wav"
 	}
-	if err := spatial.WriteWAV(outPath, rendered); err != nil {
+	dst, err := spatial.CreateWAV(outPath, src.Rate, 2)
+	if err != nil {
 		return err
 	}
 
+	// Streaming, so a whole album never becomes resident. The buffered path
+	// wanted frames x channels x 8 bytes, which is 6.4 GB for a 23 minute
+	// track expanded to twelve channels.
+	in := [][]float64{make([]float64, blockFrames), make([]float64, blockFrames)}
+	outL := make([]float64, blockFrames)
+	outR := make([]float64, blockFrames)
+	stereo := [][]float64{outL, outR}
+	gain := math.Pow(10, *gainDB/20)
+	maxSample := 0.0
+
+	for {
+		n, err := src.Read(in)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			dst.Close()
+			return err
+		}
+		if err := pipe.Process(in[0][:n], in[1][:n], outL[:n], outR[:n]); err != nil {
+			dst.Close()
+			return err
+		}
+		for i := range n {
+			outL[i] *= gain
+			outR[i] *= gain
+			maxSample = math.Max(maxSample, math.Max(math.Abs(outL[i]), math.Abs(outR[i])))
+		}
+		if err := dst.Write(stereo, n); err != nil {
+			dst.Close()
+			return err
+		}
+	}
+	if err := dst.Close(); err != nil {
+		return err
+	}
+
+	fmt.Printf("  peak     %.3f\n", maxSample)
+	if maxSample > 1 {
+		fmt.Println("  warning  the render clipped, try --gain -3")
+	}
 	fmt.Printf("  out      %s, 2 ch, 24-bit\n", filepath.Base(outPath))
 	fmt.Printf("  took     %s\n", time.Since(started).Round(time.Millisecond))
 	return nil
 }
 
-func resolveLayout(name string, in spatial.Audio) (spatial.Layout, error) {
-	if name != "" {
-		return spatial.LayoutByName(name)
+// blockFrames is the streaming block. Big enough that per-block overhead is
+// irrelevant, small enough that the intermediate layout buffer stays tiny.
+const blockFrames = 4096
+
+// resolveTarget decides what layout to render, preferring an explicit upmix
+// target, then an explicit input layout, then the channel count.
+func resolveTarget(layoutName, upmixTo string, src *spatial.Reader) (spatial.Layout, error) {
+	if upmixTo != "" {
+		if src.Channels != 2 {
+			return spatial.Layout{}, fmt.Errorf(
+				"occam-spatial: --upmix takes stereo, this file has %d channels", src.Channels)
+		}
+		return spatial.LayoutByName(upmixTo)
 	}
-	return spatial.LayoutForChannels(len(in.Channels))
+	if layoutName != "" {
+		return spatial.LayoutByName(layoutName)
+	}
+	return spatial.LayoutForChannels(src.Channels)
 }
 
 func usage() {
@@ -139,6 +173,11 @@ reason to want it.
 Already have multichannel audio? Just render it:
 
   occam-spatial movie-5.1.wav
+
+Peak is reported rather than normalised: streaming means the loudest sample is
+not known until the end. Use --gain to level match, and note that comparing a
+render against its source needs loudness matching, not peak matching, since
+binaural summing keeps peaks while dropping average energy.
 
 Flags:
 `)

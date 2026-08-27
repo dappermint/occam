@@ -44,6 +44,34 @@ func NewRenderer(layout Layout, rate int, model Model) (*Renderer, error) {
 // Model reports which head model this renderer was built with.
 func (r *Renderer) Model() Model { return r.model }
 
+// Block renders n frames from a layout buffer into two ear buffers. State
+// carries across calls, so a stream can be fed indefinitely.
+func (r *Renderer) Block(in [][]float64, outL, outR []float64, n int) {
+	norm := r.norm()
+	for i := range n {
+		var l, rr float64
+		for c, s := range r.layout.Speakers {
+			x := in[c][i]
+			if s.LFE {
+				l += x * r.lfeGain
+				rr += x * r.lfeGain
+				continue
+			}
+			el, er := r.ears[c].process(x)
+			l += el
+			rr += er
+		}
+		outL[i] = l * norm
+		outR[i] = rr * norm
+	}
+}
+
+// norm scales for how many speakers actually sum into one ear, so a full
+// layout does not clip where a sparse one would be quiet.
+func (r *Renderer) norm() float64 {
+	return 1.0 / math.Sqrt(float64(max(1, r.layout.Channels()-1)))
+}
+
 // Render turns multichannel audio into two channels.
 func (r *Renderer) Render(in Audio) (Audio, error) {
 	if len(in.Channels) != r.layout.Channels() {
@@ -55,29 +83,8 @@ func (r *Renderer) Render(in Audio) (Audio, error) {
 			in.Rate, r.rate)
 	}
 
-	frames := in.Frames()
-	out := NewAudio(in.Rate, 2, frames)
-
-	// Summing many speakers into one ear overshoots, so scale by how many
-	// are actually contributing rather than clipping later.
-	norm := 1.0 / math.Sqrt(float64(max(1, r.layout.Channels()-1)))
-
-	for i := range frames {
-		var l, rr float64
-		for c, s := range r.layout.Speakers {
-			x := in.Channels[c][i]
-			if s.LFE {
-				l += x * r.lfeGain
-				rr += x * r.lfeGain
-				continue
-			}
-			el, er := r.ears[c].process(x)
-			l += el
-			rr += er
-		}
-		out.Channels[0][i] = l * norm
-		out.Channels[1][i] = rr * norm
-	}
+	out := NewAudio(in.Rate, 2, in.Frames())
+	r.Block(in.Channels, out.Channels[0], out.Channels[1], in.Frames())
 	return out, nil
 }
 
