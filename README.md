@@ -151,6 +151,13 @@ $ nc -U /tmp/occam.sock
 `dev` is the open `hid.Device`. `proto` builds, mutates and sends frames.
 nothing is cached between calls, so the device state is always the real one.
 
+## install
+
+```
+brew install dappermint/tap/occam
+brew services start occam      # menu bar app at login
+```
+
 ## build
 
 ```

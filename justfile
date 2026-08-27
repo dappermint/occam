@@ -72,6 +72,21 @@ nix-build:
 descriptor:
     @go run . probe --descriptor
 
+# tag a release and print the sha256 the brew formula needs
+release version:
+    @git diff --quiet || { echo "working tree is dirty"; exit 1; }
+    git tag -a v{{ version }} -m "v{{ version }}"
+    @echo
+    @echo "now: git push && git push --tags"
+    @echo "then set url and sha256 in Formula/occam.rb from the github tarball:"
+    @echo "  curl -sL https://github.com/dappermint/occam/archive/refs/tags/v{{ version }}.tar.gz | shasum -a 256"
+
+# check the formula the way homebrew will
+formula:
+    cp Formula/occam.rb $(brew --repository)/Library/Taps/dappermint/homebrew-tap/Formula/occam.rb
+    brew style --formula dappermint/tap/occam
+    brew audit --formula --strict dappermint/tap/occam
+
 # remove build outputs
 clean:
     rm -f occam
