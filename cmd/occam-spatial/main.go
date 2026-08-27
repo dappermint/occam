@@ -35,7 +35,16 @@ func run() error {
 		gainDB     = flag.Float64("gain", 0, "gain in dB applied to the render, for level matching")
 		showVer    = flag.Bool("version", false, "print the version")
 	)
-	flag.Usage = usage
+	// Help someone asked for is output; help shown because they got the
+	// command wrong is a diagnostic. flag sends both to stderr, which leaves
+	// `occam-spatial --help | less` empty.
+	for _, a := range os.Args[1:] {
+		if a == "-h" || a == "--help" || a == "-help" {
+			usage(os.Stdout)
+			return nil
+		}
+	}
+	flag.Usage = func() { usage(os.Stderr) }
 	flag.Parse()
 
 	if *showVer {
@@ -43,7 +52,7 @@ func run() error {
 		return nil
 	}
 	if flag.NArg() != 1 {
-		usage()
+		usage(os.Stderr)
 		return fmt.Errorf("need exactly one input file")
 	}
 	inPath := flag.Arg(0)
@@ -155,8 +164,8 @@ func resolveTarget(layoutName, upmixTo string, src *spatial.Reader) (spatial.Lay
 	return spatial.LayoutForChannels(src.Channels)
 }
 
-func usage() {
-	fmt.Fprint(os.Stderr, `occam-spatial renders multichannel audio to binaural stereo.
+func usage(w io.Writer) {
+	fmt.Fprint(w, `occam-spatial renders multichannel audio to binaural stereo.
 
   occam-spatial [flags] <input.wav>
 
@@ -183,5 +192,6 @@ the end.
 
 Flags:
 `)
+	flag.CommandLine.SetOutput(w)
 	flag.PrintDefaults()
 }
