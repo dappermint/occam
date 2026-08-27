@@ -29,6 +29,8 @@ type editor struct {
 	mu       sync.Mutex
 	slot     int
 	eq       proto.EQ
+	micEQ    proto.EQ
+	micPend  *time.Timer
 	names    map[int]string
 	pending  *time.Timer
 	profPath string
@@ -68,12 +70,18 @@ func (e *editor) load(st *state) {
 		dev.Close()
 	}
 
+	e.mu.Lock()
+	e.micEQ = extras.MicBands
+	e.mu.Unlock()
+
 	menu.RunOnMain(func() {
 		menu.SetLEDModes(proto.LEDModes)
 		menu.SetANCModes(proto.ANCModes)
 		menu.SetSleepOptions(sleepLabels())
+		menu.SetMicPresets(proto.MicPresets, extras.MicPreset)
 		menu.SetSlots(names, slot)
 		menu.SetBands(bandsOf(eq))
+		menu.SetMicBands(bandsOf(extras.MicBands))
 		menu.SetExtras(extras)
 		menu.SetSidetone(extras.Sidetone)
 		menu.SetStatus("")
@@ -103,6 +111,36 @@ func (e *editor) setBand(band, value int) {
 	e.mu.Unlock()
 
 	menu.RunOnMain(func() { menu.SetStatus("…") })
+}
+
+// setMicBand records a mic slider move and schedules the write.
+func (e *editor) setMicBand(band, value int) {
+	e.mu.Lock()
+	if band < 0 || band >= proto.Bands {
+		e.mu.Unlock()
+		return
+	}
+	e.micEQ[band] = int8(value)
+	if e.micPend != nil {
+		e.micPend.Stop()
+	}
+	e.micPend = time.AfterFunc(writeDelay, e.flushMic)
+	e.mu.Unlock()
+
+	menu.RunOnMain(func() { menu.SetStatus("…") })
+}
+
+// flushMic writes the mic curve. It needs no start/stop bracket: the capture
+// only ever wraps the speaker bands.
+func (e *editor) flushMic() {
+	e.mu.Lock()
+	eq := e.micEQ
+	e.mu.Unlock()
+	e.write("mic EQ", proto.SetMicBands(eq))
+}
+
+func (e *editor) setMicPreset(index int) {
+	e.write("mic preset", proto.SetMicPresetIndex(byte(index)))
 }
 
 // flush writes the current curve to the slot being edited.
@@ -229,6 +267,15 @@ func readExtras(dev *hid.Device) menu.Extras {
 	}
 	if m, err := ask(dev, proto.New(proto.GetSidetoneVolume, 0x00)); err == nil && len(m.Args) >= 1 {
 		e.Sidetone = int(m.Args[0])
+	}
+	if m, err := ask(dev, proto.MicPresetIndex()); err == nil && len(m.Args) >= 1 &&
+		!proto.Unavailable(m.Args) {
+		e.MicPreset = int(m.Args[0])
+	}
+	if m, err := ask(dev, proto.MicBands()); err == nil && len(m.Args) >= proto.Bands {
+		if eq, err := proto.ParseBands(m.Args[:proto.Bands]); err == nil {
+			e.MicBands = eq
+		}
 	}
 	return e
 }

@@ -13,6 +13,8 @@ void occam_window_build(const char **bandLabels, int minDB, int maxDB);
 void occam_window_show(void);
 void occam_window_set_slots(const char **names, int count, int selected);
 void occam_window_set_bands(const int *values, int count);
+void occam_window_set_mic_bands(const int *values, int count);
+void occam_window_set_mic_presets(const char **names, int count, int selected);
 void occam_window_set_sidetone(int value);
 void occam_window_set_led_modes(const char **names, int count);
 void occam_window_set_anc_modes(const char **names, int count);
@@ -39,6 +41,8 @@ const (
 // main thread, so they may talk to the device.
 type WindowHandlers struct {
 	OnBand       func(band, value int)
+	OnMicBand    func(band, value int)
+	OnMicPreset  func(index int)
 	OnSlot       func(slot int)
 	OnSidetone   func(value int)
 	OnANC        func(mode, level int)
@@ -60,6 +64,8 @@ type Extras struct {
 	SleepIndex int
 	LowLatency bool
 	Sidetone   int
+	MicPreset  int
+	MicBands   [10]int8
 }
 
 // SetLEDModes fills the indicator light popup. The device takes 0, 1 or 2.
@@ -150,6 +156,25 @@ func SetSlots(names []string, selected int) {
 	C.occam_window_set_slots(c, C.int(len(names)), C.int(selected))
 }
 
+// SetMicPresets fills the mic EQ preset picker.
+func SetMicPresets(names []string, selected int) {
+	c, free := cStrings(names)
+	defer free()
+	C.occam_window_set_mic_presets(c, C.int(len(names)), C.int(selected))
+}
+
+// SetMicBands moves the mic EQ sliders without firing change callbacks.
+func SetMicBands(values []int) {
+	if len(values) == 0 {
+		return
+	}
+	buf := make([]C.int, len(values))
+	for i, v := range values {
+		buf[i] = C.int(v)
+	}
+	C.occam_window_set_mic_bands(&buf[0], C.int(len(buf)))
+}
+
 // SetBands moves the sliders without firing change callbacks.
 func SetBands(values []int) {
 	if len(values) == 0 {
@@ -198,6 +223,20 @@ func handlers() WindowHandlers {
 func occamBandChanged(band, value C.int) {
 	if h := handlers().OnBand; h != nil {
 		go h(int(band), int(value))
+	}
+}
+
+//export occamMicBandChanged
+func occamMicBandChanged(band, value C.int) {
+	if h := handlers().OnMicBand; h != nil {
+		go h(int(band), int(value))
+	}
+}
+
+//export occamMicPresetChanged
+func occamMicPresetChanged(index C.int) {
+	if h := handlers().OnMicPreset; h != nil {
+		go h(int(index))
 	}
 }
 

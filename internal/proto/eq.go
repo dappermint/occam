@@ -192,6 +192,27 @@ func SetANC(mode, level byte) *Message {
 	return New(SetANCStatusAndLevel, 0x00, mode, level)
 }
 
+// MicPresets are the four mic EQ buttons Synapse shows. It gives them icons
+// rather than words, so these labels are ours.
+var MicPresets = []string{"Preset 1", "Preset 2", "Preset 3", "Custom"}
+
+// MicBands reads the mic curve. Unlike the speaker one it carries no slot
+// byte: the capture shows setMicCustomerEQBand taking exactly ten arguments.
+func MicBands() *Message { return New(GetMicCustomerEQBand, 0x00) }
+
+// SetMicBands writes the mic curve, ten bands and nothing else.
+func SetMicBands(eq EQ) *Message {
+	return New(SetMicCustomerEQBand, 0x00, eq.Bytes()...)
+}
+
+// MicPresetIndex reads which mic EQ preset is selected.
+func MicPresetIndex() *Message { return New(GetMicPresetEQIndex, 0x00) }
+
+// SetMicPresetIndex selects a mic EQ preset.
+func SetMicPresetIndex(index byte) *Message {
+	return New(SetMicPresetEQIndex, 0x00, index)
+}
+
 // MicStatus reads whether the mic is muted.
 func MicStatus() *Message { return New(GetMicStatus, 0x00) }
 

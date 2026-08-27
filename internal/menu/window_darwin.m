@@ -4,16 +4,18 @@
 
 // Implemented in Go, see window_darwin.go.
 extern void occamBandChanged(int band, int value);
+extern void occamMicBandChanged(int band, int value);
 extern void occamSlotChanged(int slot);
+extern void occamMicPresetChanged(int index);
 extern void occamSidetoneChanged(int value);
-extern void occamAction(int tag);
-extern void occamMainCallback(void);
-extern void occamANCChanged(int on, int level);
+extern void occamANCChanged(int mode, int level);
 extern void occamMicChanged(int muted);
 extern void occamBalanceChanged(int value);
-extern void occamLEDChanged(int on);
+extern void occamLEDChanged(int mode);
 extern void occamPowerOffChanged(int index);
 extern void occamLowLatencyChanged(int on);
+extern void occamAction(int tag);
+extern void occamMainCallback(void);
 
 // AppKit calls that must happen on the main thread, invoked from goroutines.
 void occam_main_async(void) {
@@ -22,29 +24,42 @@ void occam_main_async(void) {
 
 #define OCCAM_BANDS 10
 
+// Columns are label, control, value. A grid keeps them aligned whatever a row
+// holds; nested stacks did not, which is why checkboxes sat outside the column
+// and long labels were clipped.
+#define OCCAM_LABEL_WIDTH  80.0
+#define OCCAM_VALUE_WIDTH  34.0
+#define OCCAM_SLIDER_WIDTH 260.0
+
 @interface OccamWindowTarget : NSObject <NSWindowDelegate>
 @end
 
 static NSWindow          *gWindow = nil;
 static OccamWindowTarget *gWinTarget = nil;
-static NSPopUpButton     *gSlotPicker = nil;
-static NSSlider          *gBand[OCCAM_BANDS];
-static NSTextField       *gBandValue[OCCAM_BANDS];
-static NSSlider          *gSidetone = nil;
-static NSTextField       *gSidetoneValue = nil;
-static NSSlider          *gANCLevel = nil;
-static NSTextField       *gANCValue = nil;
-static NSButton          *gMicMute = nil;
-static NSSlider          *gBalance = nil;
-static NSTextField       *gBalanceValue = nil;
-static NSPopUpButton     *gDongleLED = nil;
-static NSPopUpButton     *gPowerOff = nil;
-static NSButton          *gLowLatency = nil;
-static NSPopUpButton     *gANCMode = nil;
-static NSTextField       *gStatus = nil;
 
-// Set while Go is pushing values in, so programmatic changes do not echo back
-// out as if the user had dragged something.
+static NSPopUpButton *gSlotPicker = nil;
+static NSSlider      *gBand[OCCAM_BANDS];
+static NSTextField   *gBandValue[OCCAM_BANDS];
+static NSPopUpButton *gANCMode = nil;
+static NSSlider      *gANCLevel = nil;
+static NSTextField   *gANCValue = nil;
+static NSSlider      *gBalance = nil;
+static NSTextField   *gBalanceValue = nil;
+static NSPopUpButton *gDongleLED = nil;
+static NSPopUpButton *gPowerOff = nil;
+static NSButton      *gLowLatency = nil;
+
+static NSButton      *gMicMute = nil;
+static NSSlider      *gSidetone = nil;
+static NSTextField   *gSidetoneValue = nil;
+static NSPopUpButton *gMicPreset = nil;
+static NSSlider      *gMicBand[OCCAM_BANDS];
+static NSTextField   *gMicBandValue[OCCAM_BANDS];
+
+static NSTextField   *gStatus = nil;
+
+// Set while Go pushes values in, so programmatic changes do not echo back out
+// as if the user had dragged something.
 static BOOL gQuiet = NO;
 
 static NSTextField *occam_label(NSString *text, CGFloat width, NSTextAlignment align) {
@@ -52,8 +67,21 @@ static NSTextField *occam_label(NSString *text, CGFloat width, NSTextAlignment a
 	f.alignment = align;
 	f.font = [NSFont monospacedDigitSystemFontOfSize:11 weight:NSFontWeightRegular];
 	f.textColor = [NSColor secondaryLabelColor];
+	f.lineBreakMode = NSLineBreakByClipping;
 	[f.widthAnchor constraintEqualToConstant:width].active = YES;
 	return f;
+}
+
+static NSTextField *occam_row_label(NSString *text) {
+	return occam_label(text, OCCAM_LABEL_WIDTH, NSTextAlignmentRight);
+}
+
+static NSTextField *occam_value(NSString *text) {
+	return occam_label(text, OCCAM_VALUE_WIDTH, NSTextAlignmentLeft);
+}
+
+static NSView *occam_spacer(void) {
+	return [NSTextField labelWithString:@""];
 }
 
 @implementation OccamWindowTarget
@@ -61,15 +89,27 @@ static NSTextField *occam_label(NSString *text, CGFloat width, NSTextAlignment a
 - (void)bandMoved:(id)sender {
 	if (gQuiet) return;
 	NSSlider *s = (NSSlider *)sender;
-	int band = (int)s.tag;
-	int value = (int)lround(s.doubleValue);
+	int band = (int)s.tag, value = (int)lround(s.doubleValue);
 	gBandValue[band].stringValue = [NSString stringWithFormat:@"%+d", value];
 	occamBandChanged(band, value);
+}
+
+- (void)micBandMoved:(id)sender {
+	if (gQuiet) return;
+	NSSlider *s = (NSSlider *)sender;
+	int band = (int)s.tag, value = (int)lround(s.doubleValue);
+	gMicBandValue[band].stringValue = [NSString stringWithFormat:@"%+d", value];
+	occamMicBandChanged(band, value);
 }
 
 - (void)slotPicked:(id)sender {
 	if (gQuiet) return;
 	occamSlotChanged((int)[(NSPopUpButton *)sender indexOfSelectedItem]);
+}
+
+- (void)micPresetPicked:(id)sender {
+	if (gQuiet) return;
+	occamMicPresetChanged((int)[(NSPopUpButton *)sender indexOfSelectedItem]);
 }
 
 - (void)sidetoneMoved:(id)sender {
@@ -131,14 +171,117 @@ static NSTextField *occam_label(NSString *text, CGFloat width, NSTextAlignment a
 
 @end
 
-static NSView *occam_row(NSString *label, NSView *middle, NSTextField *value) {
-	NSStackView *row = [NSStackView stackViewWithViews:@[
-		occam_label(label, 46, NSTextAlignmentRight), middle, value
+static NSPopUpButton *occam_popup(SEL action) {
+	NSPopUpButton *b = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+	b.target = gWinTarget;
+	b.action = action;
+	return b;
+}
+
+static NSSlider *occam_slider(double lo, double hi, int ticks, SEL action) {
+	NSSlider *s = [NSSlider sliderWithValue:lo minValue:lo maxValue:hi
+	                                 target:gWinTarget action:action];
+	s.numberOfTickMarks = ticks;
+	s.allowsTickMarkValuesOnly = YES;
+	[s.widthAnchor constraintEqualToConstant:OCCAM_SLIDER_WIDTH].active = YES;
+	return s;
+}
+
+static NSArray<NSView *> *occam_rule(void) {
+	NSBox *box = [[NSBox alloc] initWithFrame:NSZeroRect];
+	box.boxType = NSBoxSeparator;
+	[box.widthAnchor constraintEqualToConstant:OCCAM_SLIDER_WIDTH].active = YES;
+	return @[occam_spacer(), box, occam_spacer()];
+}
+
+// Builds a grid from rows of exactly three views, pinned to the top left so
+// content does not stretch when the tab is taller than the rows.
+static NSView *occam_grid(NSArray<NSArray<NSView *> *> *rows) {
+	NSGridView *grid = [NSGridView gridViewWithViews:rows];
+	grid.rowSpacing = 7;
+	grid.columnSpacing = 10;
+	grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
+	[grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+	[grid columnAtIndex:1].xPlacement = NSGridCellPlacementLeading;
+	[grid columnAtIndex:2].xPlacement = NSGridCellPlacementLeading;
+	grid.translatesAutoresizingMaskIntoConstraints = NO;
+
+	NSView *wrap = [[NSView alloc] initWithFrame:NSZeroRect];
+	[wrap addSubview:grid];
+	[NSLayoutConstraint activateConstraints:@[
+		[grid.topAnchor constraintEqualToAnchor:wrap.topAnchor constant:16],
+		[grid.leadingAnchor constraintEqualToAnchor:wrap.leadingAnchor constant:16],
+		[grid.trailingAnchor constraintLessThanOrEqualToAnchor:wrap.trailingAnchor constant:-16],
+		[grid.bottomAnchor constraintLessThanOrEqualToAnchor:wrap.bottomAnchor constant:-16],
 	]];
-	row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-	row.spacing = 10;
-	row.alignment = NSLayoutAttributeCenterY;
-	return row;
+	return wrap;
+}
+
+static NSView *occam_headset_tab(const char **bandLabels, int minDB, int maxDB) {
+	NSMutableArray *rows = [NSMutableArray array];
+
+	gSlotPicker = occam_popup(@selector(slotPicked:));
+	[rows addObject:@[occam_row_label(@"Preset"), gSlotPicker, occam_spacer()]];
+	[rows addObject:occam_rule()];
+
+	for (int i = 0; i < OCCAM_BANDS; i++) {
+		gBand[i] = occam_slider(minDB, maxDB, (maxDB - minDB) + 1, @selector(bandMoved:));
+		gBand[i].tag = i;
+		gBandValue[i] = occam_value(@"+0");
+		[rows addObject:@[occam_row_label([NSString stringWithUTF8String:bandLabels[i]]),
+		                  gBand[i], gBandValue[i]]];
+	}
+	[rows addObject:occam_rule()];
+
+	gANCMode = occam_popup(@selector(ancPicked:));
+	[rows addObject:@[occam_row_label(@"Noise"), gANCMode, occam_spacer()]];
+
+	gANCLevel = occam_slider(1, 4, 4, @selector(ancLevelMoved:));
+	gANCValue = occam_value(@"1");
+	[rows addObject:@[occam_row_label(@"Level"), gANCLevel, gANCValue]];
+
+	gBalance = occam_slider(0, 20, 21, @selector(balanceMoved:));
+	gBalanceValue = occam_value(@"10");
+	[rows addObject:@[occam_row_label(@"Game/Chat"), gBalance, gBalanceValue]];
+	[rows addObject:occam_rule()];
+
+	gDongleLED = occam_popup(@selector(ledPicked:));
+	[rows addObject:@[occam_row_label(@"Light"), gDongleLED, occam_spacer()]];
+
+	gPowerOff = occam_popup(@selector(powerOffPicked:));
+	[rows addObject:@[occam_row_label(@"Sleep"), gPowerOff, occam_spacer()]];
+
+	gLowLatency = [NSButton checkboxWithTitle:@"Ultra-low latency"
+	                                   target:gWinTarget action:@selector(lowLatencyToggled:)];
+	[rows addObject:@[occam_row_label(@"Latency"), gLowLatency, occam_spacer()]];
+
+	return occam_grid(rows);
+}
+
+static NSView *occam_mic_tab(const char **bandLabels, int minDB, int maxDB) {
+	NSMutableArray *rows = [NSMutableArray array];
+
+	gMicMute = [NSButton checkboxWithTitle:@"Mute microphone"
+	                                target:gWinTarget action:@selector(micToggled:)];
+	[rows addObject:@[occam_row_label(@"Microphone"), gMicMute, occam_spacer()]];
+
+	gSidetone = occam_slider(0, 15, 16, @selector(sidetoneMoved:));
+	gSidetoneValue = occam_value(@"0");
+	[rows addObject:@[occam_row_label(@"Monitoring"), gSidetone, gSidetoneValue]];
+	[rows addObject:occam_rule()];
+
+	gMicPreset = occam_popup(@selector(micPresetPicked:));
+	[rows addObject:@[occam_row_label(@"Mic EQ"), gMicPreset, occam_spacer()]];
+
+	for (int i = 0; i < OCCAM_BANDS; i++) {
+		gMicBand[i] = occam_slider(minDB, maxDB, (maxDB - minDB) + 1, @selector(micBandMoved:));
+		gMicBand[i].tag = i;
+		gMicBandValue[i] = occam_value(@"+0");
+		[rows addObject:@[occam_row_label([NSString stringWithUTF8String:bandLabels[i]]),
+		                  gMicBand[i], gMicBandValue[i]]];
+	}
+
+	return occam_grid(rows);
 }
 
 void occam_window_build(const char **bandLabels, int minDB, int maxDB) {
@@ -146,104 +289,43 @@ void occam_window_build(const char **bandLabels, int minDB, int maxDB) {
 		if (gWindow) return;
 		gWinTarget = [[OccamWindowTarget alloc] init];
 
-		NSMutableArray<NSView *> *rows = [NSMutableArray array];
+		NSTabView *tabs = [[NSTabView alloc] initWithFrame:NSZeroRect];
+		NSTabViewItem *headset = [[NSTabViewItem alloc] initWithIdentifier:@"headset"];
+		headset.label = @"Headset";
+		headset.view = occam_headset_tab(bandLabels, minDB, maxDB);
+		NSTabViewItem *mic = [[NSTabViewItem alloc] initWithIdentifier:@"mic"];
+		mic.label = @"Microphone";
+		mic.view = occam_mic_tab(bandLabels, minDB, maxDB);
+		[tabs addTabViewItem:headset];
+		[tabs addTabViewItem:mic];
 
-		gSlotPicker = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-		gSlotPicker.target = gWinTarget;
-		gSlotPicker.action = @selector(slotPicked:);
-		[rows addObject:occam_row(@"Preset", gSlotPicker, occam_label(@"", 40, NSTextAlignmentLeft))];
+		gStatus = [NSTextField labelWithString:@""];
+		gStatus.font = [NSFont systemFontOfSize:11];
+		gStatus.textColor = [NSColor secondaryLabelColor];
+		gStatus.lineBreakMode = NSLineBreakByTruncatingTail;
+		[gStatus setContentHuggingPriority:NSLayoutPriorityDefaultLow
+		                    forOrientation:NSLayoutConstraintOrientationHorizontal];
 
-		NSBox *sep = [[NSBox alloc] initWithFrame:NSZeroRect];
-		sep.boxType = NSBoxSeparator;
-		[rows addObject:sep];
-
-		for (int i = 0; i < OCCAM_BANDS; i++) {
-			gBand[i] = [NSSlider sliderWithValue:0 minValue:minDB maxValue:maxDB
-			                              target:gWinTarget action:@selector(bandMoved:)];
-			gBand[i].tag = i;
-			gBand[i].numberOfTickMarks = (maxDB - minDB) + 1;
-			gBand[i].allowsTickMarkValuesOnly = YES;
-			[gBand[i].widthAnchor constraintGreaterThanOrEqualToConstant:220].active = YES;
-
-			gBandValue[i] = occam_label(@"+0", 40, NSTextAlignmentLeft);
-			[rows addObject:occam_row([NSString stringWithUTF8String:bandLabels[i]],
-			                          gBand[i], gBandValue[i])];
-		}
-
-		NSBox *sep2 = [[NSBox alloc] initWithFrame:NSZeroRect];
-		sep2.boxType = NSBoxSeparator;
-		[rows addObject:sep2];
-
-		// Synapse's mic monitoring slider runs 0 to 15, not 0 to 255.
-		gSidetone = [NSSlider sliderWithValue:0 minValue:0 maxValue:15
-		                               target:gWinTarget action:@selector(sidetoneMoved:)];
-		gSidetone.numberOfTickMarks = 16;
-		gSidetone.allowsTickMarkValuesOnly = YES;
-		gSidetoneValue = occam_label(@"0", 40, NSTextAlignmentLeft);
-		[rows addObject:occam_row(@"Sidetone", gSidetone, gSidetoneValue)];
-
-		NSBox *sep3 = [[NSBox alloc] initWithFrame:NSZeroRect];
-		sep3.boxType = NSBoxSeparator;
-		[rows addObject:sep3];
-
-		gANCMode = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-		gANCMode.target = gWinTarget;
-		gANCMode.action = @selector(ancPicked:);
-		[rows addObject:occam_row(@"Noise", gANCMode, occam_label(@"", 40, NSTextAlignmentLeft))];
-
-		// Synapse offers levels 1 through 4, with no zero.
-		gANCLevel = [NSSlider sliderWithValue:1 minValue:1 maxValue:4
-		                               target:gWinTarget action:@selector(ancLevelMoved:)];
-		gANCLevel.numberOfTickMarks = 4;
-		gANCLevel.allowsTickMarkValuesOnly = YES;
-		gANCValue = occam_label(@"1", 40, NSTextAlignmentLeft);
-		[rows addObject:occam_row(@"Level", gANCLevel, gANCValue)];
-
-		gMicMute = [NSButton checkboxWithTitle:@"Mute microphone"
-		                                target:gWinTarget action:@selector(micToggled:)];
-		[rows addObject:gMicMute];
-
-		gBalance = [NSSlider sliderWithValue:10 minValue:0 maxValue:20
-		                              target:gWinTarget action:@selector(balanceMoved:)];
-		gBalanceValue = occam_label(@"10", 40, NSTextAlignmentLeft);
-		[rows addObject:occam_row(@"Game/Chat", gBalance, gBalanceValue)];
-
-		gDongleLED = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-		gDongleLED.target = gWinTarget;
-		gDongleLED.action = @selector(ledPicked:);
-		[rows addObject:occam_row(@"Light", gDongleLED, occam_label(@"", 40, NSTextAlignmentLeft))];
-
-		gPowerOff = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-		gPowerOff.target = gWinTarget;
-		gPowerOff.action = @selector(powerOffPicked:);
-		[rows addObject:occam_row(@"Sleep", gPowerOff, occam_label(@"", 40, NSTextAlignmentLeft))];
-
-		gLowLatency = [NSButton checkboxWithTitle:@"Ultra-low latency"
-		                                   target:gWinTarget action:@selector(lowLatencyToggled:)];
-		[rows addObject:gLowLatency];
-
+		NSButton *reload = [NSButton buttonWithTitle:@"Reload from Headset"
+		                                      target:gWinTarget action:@selector(actionClicked:)];
+		reload.tag = 2;
 		NSButton *save = [NSButton buttonWithTitle:@"Save to Profile"
 		                                    target:gWinTarget action:@selector(actionClicked:)];
 		save.tag = 1;
 		save.keyEquivalent = @"\r";
-		NSButton *reload = [NSButton buttonWithTitle:@"Reload from Headset"
-		                                      target:gWinTarget action:@selector(actionClicked:)];
-		reload.tag = 2;
 
-		gStatus = occam_label(@"", 200, NSTextAlignmentLeft);
 		NSStackView *buttons = [NSStackView stackViewWithViews:@[gStatus, reload, save]];
 		buttons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
 		buttons.spacing = 8;
-		[rows addObject:buttons];
 
-		NSStackView *stack = [NSStackView stackViewWithViews:rows];
-		stack.orientation = NSUserInterfaceLayoutOrientationVertical;
-		stack.alignment = NSLayoutAttributeLeading;
-		stack.spacing = 8;
-		stack.edgeInsets = NSEdgeInsetsMake(18, 18, 18, 18);
+		NSStackView *root = [NSStackView stackViewWithViews:@[tabs, buttons]];
+		root.orientation = NSUserInterfaceLayoutOrientationVertical;
+		root.spacing = 12;
+		root.edgeInsets = NSEdgeInsetsMake(16, 16, 16, 16);
+		root.alignment = NSLayoutAttributeWidth;
 
 		gWindow = [[NSWindow alloc]
-			initWithContentRect:NSMakeRect(0, 0, 460, 520)
+			initWithContentRect:NSMakeRect(0, 0, 520, 580)
 			          styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
 			                    NSWindowStyleMaskMiniaturizable
 			            backing:NSBackingStoreBuffered
@@ -251,7 +333,7 @@ void occam_window_build(const char **bandLabels, int minDB, int maxDB) {
 		gWindow.title = @"occam";
 		gWindow.delegate = gWinTarget;
 		gWindow.releasedWhenClosed = NO;
-		gWindow.contentView = stack;
+		gWindow.contentView = root;
 		[gWindow center];
 	}
 }
@@ -266,28 +348,53 @@ void occam_window_show(void) {
 	}
 }
 
-void occam_window_set_slots(const char **names, int count, int selected) {
-	@autoreleasepool {
-		if (!gSlotPicker) return;
-		gQuiet = YES;
-		[gSlotPicker removeAllItems];
-		for (int i = 0; i < count; i++) {
-			[gSlotPicker addItemWithTitle:[NSString stringWithUTF8String:names[i]]];
-		}
-		if (selected >= 0 && selected < count) [gSlotPicker selectItemAtIndex:selected];
-		gQuiet = NO;
+static void occam_fill(NSPopUpButton *b, const char **names, int count, int selected) {
+	if (!b) return;
+	gQuiet = YES;
+	[b removeAllItems];
+	for (int i = 0; i < count; i++) {
+		[b addItemWithTitle:[NSString stringWithUTF8String:names[i]]];
 	}
+	if (selected >= 0 && selected < count) [b selectItemAtIndex:selected];
+	gQuiet = NO;
+}
+
+void occam_window_set_slots(const char **names, int count, int selected) {
+	@autoreleasepool { occam_fill(gSlotPicker, names, count, selected); }
+}
+
+void occam_window_set_mic_presets(const char **names, int count, int selected) {
+	@autoreleasepool { occam_fill(gMicPreset, names, count, selected); }
+}
+
+void occam_window_set_led_modes(const char **names, int count) {
+	@autoreleasepool { occam_fill(gDongleLED, names, count, -1); }
+}
+
+void occam_window_set_anc_modes(const char **names, int count) {
+	@autoreleasepool { occam_fill(gANCMode, names, count, -1); }
+}
+
+void occam_window_set_sleep_options(const char **names, int count) {
+	@autoreleasepool { occam_fill(gPowerOff, names, count, -1); }
+}
+
+static void occam_set_bands(NSSlider * const *sliders, NSTextField * const *values,
+                            const int *v, int count) {
+	gQuiet = YES;
+	for (int i = 0; i < count && i < OCCAM_BANDS; i++) {
+		sliders[i].doubleValue = v[i];
+		values[i].stringValue = [NSString stringWithFormat:@"%+d", v[i]];
+	}
+	gQuiet = NO;
 }
 
 void occam_window_set_bands(const int *values, int count) {
-	@autoreleasepool {
-		gQuiet = YES;
-		for (int i = 0; i < count && i < OCCAM_BANDS; i++) {
-			gBand[i].doubleValue = values[i];
-			gBandValue[i].stringValue = [NSString stringWithFormat:@"%+d", values[i]];
-		}
-		gQuiet = NO;
-	}
+	@autoreleasepool { occam_set_bands(gBand, gBandValue, values, count); }
+}
+
+void occam_window_set_mic_bands(const int *values, int count) {
+	@autoreleasepool { occam_set_bands(gMicBand, gMicBandValue, values, count); }
 }
 
 void occam_window_set_sidetone(int value) {
@@ -297,28 +404,6 @@ void occam_window_set_sidetone(int value) {
 		gSidetoneValue.stringValue = [NSString stringWithFormat:@"%d", value];
 		gQuiet = NO;
 	}
-}
-
-static void occam_fill(NSPopUpButton *b, const char **names, int count) {
-	if (!b) return;
-	gQuiet = YES;
-	[b removeAllItems];
-	for (int i = 0; i < count; i++) {
-		[b addItemWithTitle:[NSString stringWithUTF8String:names[i]]];
-	}
-	gQuiet = NO;
-}
-
-void occam_window_set_led_modes(const char **names, int count) {
-	@autoreleasepool { occam_fill(gDongleLED, names, count); }
-}
-
-void occam_window_set_anc_modes(const char **names, int count) {
-	@autoreleasepool { occam_fill(gANCMode, names, count); }
-}
-
-void occam_window_set_sleep_options(const char **names, int count) {
-	@autoreleasepool { occam_fill(gPowerOff, names, count); }
 }
 
 void occam_window_set_extras(int ancMode, int ancLevel, int micMuted,
@@ -331,7 +416,6 @@ void occam_window_set_extras(int ancMode, int ancLevel, int micMuted,
 		}
 		gANCLevel.doubleValue = ancLevel;
 		gANCValue.stringValue = [NSString stringWithFormat:@"%d", ancLevel];
-		gLowLatency.state = lowLatency ? NSControlStateValueOn : NSControlStateValueOff;
 		gMicMute.state = micMuted ? NSControlStateValueOn : NSControlStateValueOff;
 		gBalance.doubleValue = balance;
 		gBalanceValue.stringValue = [NSString stringWithFormat:@"%d", balance];
@@ -341,6 +425,7 @@ void occam_window_set_extras(int ancMode, int ancLevel, int micMuted,
 		if (sleepIndex >= 0 && sleepIndex < gPowerOff.numberOfItems) {
 			[gPowerOff selectItemAtIndex:sleepIndex];
 		}
+		gLowLatency.state = lowLatency ? NSControlStateValueOn : NSControlStateValueOff;
 		gQuiet = NO;
 	}
 }
