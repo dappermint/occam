@@ -22,6 +22,9 @@ const (
 	tagInert
 )
 
+// ANC modes occupy tagANCBase upward, one per proto.ANCModes entry.
+const tagANCBase = 110
+
 // view is one immutable read of the device state. The menu is built on
 // AppKit's main thread and must not touch the device, so it renders one of
 // these instead.
@@ -32,6 +35,8 @@ type view struct {
 	charging  bool
 	slots     []Slot
 	active    int
+	ancMode   int // -1 when unknown
+	ancLevel  int
 	lastErr   error
 	lastApply time.Time
 }
@@ -54,7 +59,7 @@ func (s *state) refresh() {
 	dev, err := hid.Open(hid.Razer, hid.BlackSharkV3Pro...)
 	if err != nil {
 		s.mu.Lock()
-		s.v = view{battery: -1, active: -1}
+		s.v = view{battery: -1, active: -1, ancMode: -1}
 		s.mu.Unlock()
 		return
 	}
@@ -65,6 +70,8 @@ func (s *state) refresh() {
 		active    = -1
 		battery   = -1
 		charging  bool
+		ancMode   = -1
+		ancLevel  = proto.ANCLevelMax
 		firstErr  error
 		transport = hid.Transport(dev.Info.ProductID)
 	)
@@ -76,6 +83,9 @@ func (s *state) refresh() {
 	}
 	if m, err := ask(dev, proto.Charging()); err == nil && len(m.Args) > 0 {
 		charging = m.Args[0] != 0 && m.Args[0] != 0xFF
+	}
+	if m, err := ask(dev, proto.ANC()); err == nil && len(m.Args) >= 2 && !proto.Unavailable(m.Args) {
+		ancMode, ancLevel = int(m.Args[0]), int(m.Args[1])
 	}
 
 	for pos := byte(0); pos < proto.Slots; pos++ {
@@ -96,6 +106,7 @@ func (s *state) refresh() {
 	s.v.connected, s.v.transport = true, transport
 	s.v.battery, s.v.charging = battery, charging
 	s.v.slots, s.v.active, s.v.lastErr = slots, active, firstErr
+	s.v.ancMode, s.v.ancLevel = ancMode, ancLevel
 	s.mu.Unlock()
 }
 
@@ -116,7 +127,7 @@ func newMenu() *cobra.Command {
 				return err
 			}
 
-			st := &state{v: view{battery: -1, active: -1}}
+			st := &state{v: view{battery: -1, active: -1, ancMode: -1}}
 
 			// Everything device-facing lives off the main thread. AppKit owns
 			// the main thread once menu.Run blocks.
@@ -160,6 +171,15 @@ func newMenu() *cobra.Command {
 				case tag >= 0 && tag < proto.Slots:
 					if dev, err := hid.Open(hid.Razer, hid.BlackSharkV3Pro...); err == nil {
 						_ = selectSlot(dev, byte(tag))
+						dev.Close()
+					}
+				case tag >= tagANCBase && tag < tagANCBase+len(proto.ANCModes):
+					// The level only bites in mode 1, and the device keeps its
+					// own copy, so carry the one we last read rather than
+					// resetting it every time the mode changes.
+					if dev, err := hid.Open(hid.Razer, hid.BlackSharkV3Pro...); err == nil {
+						mode := byte(tag - tagANCBase)
+						_, _ = ask(dev, proto.SetANC(mode, byte(st.snapshot().ancLevel)))
 						dev.Close()
 					}
 				case tag == tagRefresh:
@@ -228,6 +248,15 @@ func items(st *state, names map[int]string) []menu.Item {
 			Title:   slotLabel(i, sl, names),
 			Tag:     i,
 			Checked: i == s.active,
+		})
+	}
+
+	out = append(out, menu.Section("Noise"))
+	for i, name := range proto.ANCModes {
+		out = append(out, menu.Item{
+			Title:   name,
+			Tag:     tagANCBase + i,
+			Checked: i == s.ancMode,
 		})
 	}
 
