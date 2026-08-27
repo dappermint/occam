@@ -77,7 +77,7 @@ func (e *editor) load(st *state) {
 
 	menu.RunOnMain(func() {
 		menu.SetLEDModes(proto.LEDModes)
-		menu.SetANCModes(proto.ANCModes)
+		menu.SetANCModes(proto.ANCModeNames())
 		menu.SetSleepOptions(sleepLabels())
 		menu.SetMicPresets(proto.MicPresetNames(), extras.MicPreset)
 		menu.SetMix(mixState())
@@ -312,8 +312,13 @@ func (e *editor) reportMix(what string, err error) {
 	})
 }
 
-func (e *editor) setANC(mode, level int) {
-	e.write("noise cancelling", proto.SetANC(byte(mode), byte(level)))
+// setANC takes the popup row; the mode bytes are not 0, 1, 2.
+func (e *editor) setANC(row, level int) {
+	v, ok := proto.ANCModeValue(row)
+	if !ok {
+		return
+	}
+	e.write("noise cancelling", proto.SetANC(v, byte(level)))
 }
 
 func (e *editor) setMic(muted bool) { e.write("microphone", proto.SetMicMuted(muted)) }
@@ -338,7 +343,7 @@ func (e *editor) setLowLatency(on bool) {
 func readExtras(dev *hid.Device) menu.Extras {
 	var e menu.Extras
 	if m, err := ask(dev, proto.ANC()); err == nil && len(m.Args) >= 2 {
-		e.ANCMode, e.ANCLevel = int(m.Args[0]), int(m.Args[1])
+		e.ANCMode, e.ANCLevel = proto.ANCModeRow(m.Args[0]), int(m.Args[1])
 	}
 	if m, err := ask(dev, proto.MicStatus()); err == nil && len(m.Args) >= 1 {
 		e.MicMuted = m.Args[0] != 0

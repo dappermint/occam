@@ -172,10 +172,52 @@ func SerialNumber() *Message    { return New(GetSerialNumber, 0x00) }
 // Sidetone is the mic monitoring level, 0 to 255.
 func SetSidetone(level byte) *Message { return New(SetSidetoneVolume, 0x00, level) }
 
-// ANCModes are the noise cancelling states. Synapse shows a master toggle and
-// an ANC/Ambient pair; the device reported 1 while ANC was selected, so 0 is
-// taken to be off and 2 to be ambient. Only 0 and 1 are confirmed.
-var ANCModes = []string{"Off", "Noise cancelling", "Ambient"}
+// ANCMode is one of the noise cancelling states, with the byte 0x92 wants.
+type ANCMode struct {
+	Value byte
+	Name  string
+}
+
+// ANCModes are the three states the earcup button cycles through.
+//
+// Ambient is 0x50, not 2. 0x92 stores any small byte without validating, so 2
+// looked like it worked and was silently inaudible. Polling the register while
+// the hardware button was pressed gave the real cycle: 0x50, 0x00, 0x01.
+//
+// The level only bites in mode 0x01. Writing one under the other two is
+// ignored and the device keeps its last 0x01 value.
+var ANCModes = []ANCMode{
+	{0x00, "Off"},
+	{0x01, "Noise cancelling"},
+	{0x50, "Ambient"},
+}
+
+// ANCModeNames lists them for a picker.
+func ANCModeNames() []string {
+	out := make([]string, len(ANCModes))
+	for i, m := range ANCModes {
+		out[i] = m.Name
+	}
+	return out
+}
+
+// ANCModeRow maps a device value onto a row in that list, or -1.
+func ANCModeRow(value byte) int {
+	for i, m := range ANCModes {
+		if m.Value == value {
+			return i
+		}
+	}
+	return -1
+}
+
+// ANCModeValue maps a row back to the byte to send.
+func ANCModeValue(row int) (byte, bool) {
+	if row < 0 || row >= len(ANCModes) {
+		return 0, false
+	}
+	return ANCModes[row].Value, true
+}
 
 // ANCLevelMin and ANCLevelMax bound the level. Synapse offers 1, 2, 3, 4 with
 // no zero, and the device reported 4 while 4 was selected.

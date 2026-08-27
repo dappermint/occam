@@ -20,3 +20,31 @@ func TestMicPresetCurves(t *testing.T) {
 		}
 	}
 }
+
+// Ambient was 2 for a while. The register stores 2 without complaint and the
+// hardware ignores it; polling while the earcup button cycled gave 0x50.
+func TestANCModeValues(t *testing.T) {
+	want := []struct {
+		value byte
+		name  string
+	}{{0x00, "Off"}, {0x01, "Noise cancelling"}, {0x50, "Ambient"}}
+
+	if len(ANCModes) != len(want) {
+		t.Fatalf("have %d modes, want %d", len(ANCModes), len(want))
+	}
+	for i, w := range want {
+		if ANCModes[i].Value != w.value || ANCModes[i].Name != w.name {
+			t.Errorf("row %d is {0x%02X %q}, want {0x%02X %q}",
+				i, ANCModes[i].Value, ANCModes[i].Name, w.value, w.name)
+		}
+		if got := ANCModeRow(w.value); got != i {
+			t.Errorf("ANCModeRow(0x%02X) = %d, want %d", w.value, got, i)
+		}
+		if v, ok := ANCModeValue(i); !ok || v != w.value {
+			t.Errorf("ANCModeValue(%d) = 0x%02X %v, want 0x%02X true", i, v, ok, w.value)
+		}
+	}
+	if ANCModeRow(0x02) != -1 {
+		t.Error("0x02 is not a mode, it is the byte that looked like one")
+	}
+}

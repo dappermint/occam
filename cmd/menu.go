@@ -85,7 +85,7 @@ func (s *state) refresh() {
 		charging = m.Args[0] != 0 && m.Args[0] != 0xFF
 	}
 	if m, err := ask(dev, proto.ANC()); err == nil && len(m.Args) >= 2 && !proto.Unavailable(m.Args) {
-		ancMode, ancLevel = int(m.Args[0]), int(m.Args[1])
+		ancMode, ancLevel = proto.ANCModeRow(m.Args[0]), int(m.Args[1])
 	}
 
 	for pos := byte(0); pos < proto.Slots; pos++ {
@@ -177,10 +177,11 @@ func newMenu() *cobra.Command {
 					// The level only bites in mode 1, and the device keeps its
 					// own copy, so carry the one we last read rather than
 					// resetting it every time the mode changes.
-					if dev, err := hid.Open(hid.Razer, hid.BlackSharkV3Pro...); err == nil {
-						mode := byte(tag - tagANCBase)
-						_, _ = ask(dev, proto.SetANC(mode, byte(st.snapshot().ancLevel)))
-						dev.Close()
+					if v, ok := proto.ANCModeValue(tag - tagANCBase); ok {
+						if dev, err := hid.Open(hid.Razer, hid.BlackSharkV3Pro...); err == nil {
+							_, _ = ask(dev, proto.SetANC(v, byte(st.snapshot().ancLevel)))
+							dev.Close()
+						}
 					}
 				case tag == tagRefresh:
 					// the refresh below is the whole job
@@ -254,9 +255,9 @@ func items(st *state, names map[int]string) []menu.Item {
 	}
 
 	out = append(out, menu.Section("Noise"))
-	for i, name := range proto.ANCModes {
+	for i, m := range proto.ANCModes {
 		out = append(out, menu.Item{
-			Title:   name,
+			Title:   m.Name,
 			Tag:     tagANCBase + i,
 			Checked: i == s.ancMode,
 		})
