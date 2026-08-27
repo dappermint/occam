@@ -105,6 +105,21 @@ listen file start='0' length='180':
     @echo "reference: /tmp/occam-listen-src.wav"
     @echo "binaural:  /tmp/occam-listen-binaural.wav"
 
+# realtime binaural: tap system audio, render it, play it to the headset
+live frames='128':
+    nix shell nixpkgs#cargo nixpkgs#rustc -c bash -c \
+        "cd occam-live && cargo run --release -- --frames {{ frames }}"
+
+# list output devices as occam-live sees them
+live-devices:
+    nix shell nixpkgs#cargo nixpkgs#rustc -c bash -c \
+        "cd occam-live && cargo run --release -- --list"
+
+# build the tap, report its layout, stop before muting anything
+live-dry:
+    nix shell nixpkgs#cargo nixpkgs#rustc -c bash -c \
+        "cd occam-live && cargo run --release -- --dry-run"
+
 # regenerate the embedded hrir blob from a downloaded sofa file
 hrir:
     @echo "get D1_HRIR_SOFA.zip from https://zenodo.org/records/12092466"

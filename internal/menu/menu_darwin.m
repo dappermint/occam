@@ -15,9 +15,8 @@ static OccamMenuTarget *gTarget = nil;
 
 @implementation OccamMenuTarget
 
-// Fires on the main thread just before the menu draws, which is what makes the
-// contents live. The Go side must render from cached state here and never
-// touch the device, or the menu hangs while HID I/O happens.
+// Must render from cached state: touching the device here hangs the menu
+// behind HID I/O.
 - (void)menuWillOpen:(NSMenu *)menu {
 	occamMenuWillOpen();
 }
@@ -31,8 +30,7 @@ static OccamMenuTarget *gTarget = nil;
 void occam_menu_start(const char *title) {
 	@autoreleasepool {
 		[NSApplication sharedApplication];
-		// Accessory keeps it out of the Dock and the app switcher without
-		// needing an .app bundle with LSUIElement.
+		// Accessory: out of the Dock without needing an .app bundle.
 		[NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
 
 		gTarget = [[OccamMenuTarget alloc] init];

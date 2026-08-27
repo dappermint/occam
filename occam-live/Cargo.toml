@@ -1,0 +1,18 @@
+[package]
+name = "occam-live"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+description = "Realtime binaural rendering of macOS system audio for a Razer BlackShark V3 Pro"
+
+[dependencies]
+
+[profile.release]
+# The DSP runs inside a CoreAudio render callback. Panics there would unwind
+# through C, so the build is set up to abort instead, and the callback is
+# written not to panic in the first place.
+panic = "abort"
+lto = true
+codegen-units = 1
+opt-level = 3

@@ -17,16 +17,14 @@ extern void occamLowLatencyChanged(int on);
 extern void occamAction(int tag);
 extern void occamMainCallback(void);
 
-// AppKit calls that must happen on the main thread, invoked from goroutines.
 void occam_main_async(void) {
 	dispatch_async(dispatch_get_main_queue(), ^{ occamMainCallback(); });
 }
 
 #define OCCAM_BANDS 10
 
-// Columns are label, control, value. A grid keeps them aligned whatever a row
-// holds; nested stacks did not, which is why checkboxes sat outside the column
-// and long labels were clipped.
+// A grid keeps label/control/value aligned whatever a row holds. Nested stacks
+// did not: checkboxes sat outside the column and long labels clipped.
 #define OCCAM_LABEL_WIDTH  80.0
 #define OCCAM_VALUE_WIDTH  34.0
 #define OCCAM_SLIDER_WIDTH 260.0
@@ -194,8 +192,7 @@ static NSArray<NSView *> *occam_rule(void) {
 	return @[occam_spacer(), box, occam_spacer()];
 }
 
-// Builds a grid from rows of exactly three views, pinned to the top left so
-// content does not stretch when the tab is taller than the rows.
+// Pinned top-left so rows do not stretch when the tab is taller than them.
 static NSView *occam_grid(NSArray<NSArray<NSView *> *> *rows) {
 	NSGridView *grid = [NSGridView gridViewWithViews:rows];
 	grid.rowSpacing = 7;

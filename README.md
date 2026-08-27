@@ -227,6 +227,26 @@ nixpkgs `ffmpeg-full` because the homebrew build ships without soxr.
 needs no data and works at any sample rate. it sounds worse. it exists so there
 is always something that runs.
 
+## realtime
+
+```
+just live            # or: occam-live --frames 128
+```
+
+a third binary, in rust, rendering system audio to binaural as it plays. no
+virtual audio device and no blackhole: a coreaudio process tap captures system
+output, and one aggregate device carries that tap as its input and the headset
+as its output. a single IOProc then hands both sides of the same time slice,
+so there is no ring buffer between capture and playback and no drift between
+two clocks.
+
+rust rather than go because the dsp runs inside the render callback. go would
+need a ring buffer to keep its garbage collector off that thread, and the ring
+costs a block of latency. 128 frames is 2.7 ms a cycle and runs clean.
+
+the tap excludes occam-live's own process. that is load-bearing: a global tap
+mutes what it captures, so one that excludes nothing mutes our own output too.
+
 ## protocol
 
 four of the setters (anc, mic status, game/chat balance, auto power off) are
