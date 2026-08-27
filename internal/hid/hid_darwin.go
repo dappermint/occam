@@ -158,13 +158,18 @@ static void occam_report_cb(void *context, IOReturn result, void *sender,
 	b->got = 1;
 }
 
-static void occam_listen_start(IOHIDDeviceRef d, occam_inbox *b) {
+// The registration must outlive every wait: it hands the device a pointer to
+// b->scratch, and the device keeps writing there. Registering per call and
+// freeing the inbox afterwards leaves the device writing into freed memory,
+// which crashes inside CoreFoundation a few calls later.
+static void occam_listen_register(IOHIDDeviceRef d, occam_inbox *b) {
 	IOHIDDeviceRegisterInputReportCallback(d, b->scratch, (CFIndex)sizeof(b->scratch), occam_report_cb, b);
+}
+
+static void occam_listen_start(IOHIDDeviceRef d) {
 	IOHIDDeviceScheduleWithRunLoop(d, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
 }
 
-// Unscheduling is enough to silence the callback; the API rejects a null
-// buffer, so the registration is left in place and dies with the handle.
 static void occam_listen_stop(IOHIDDeviceRef d) {
 	IOHIDDeviceUnscheduleFromRunLoop(d, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
 }
@@ -210,6 +215,7 @@ type Device struct {
 	LastRunResult RunResult
 
 	ref  C.IOHIDDeviceRef
+	box  *C.occam_inbox
 	open bool
 }
 
@@ -352,6 +358,13 @@ func Open(vid uint16, pids ...uint16) (*Device, error) {
 		return nil, fmt.Errorf("hid: IOHIDDeviceOpen: %s", ioReturn(int(rc)))
 	}
 	found.open = true
+
+	found.box = C.occam_inbox_new()
+	if found.box == nil {
+		found.Close()
+		return nil, errors.New("hid: could not allocate the input buffer")
+	}
+	C.occam_listen_register(found.ref, found.box)
 	return found, nil
 }
 
@@ -366,6 +379,13 @@ func (d *Device) Close() error {
 	}
 	C.occam_release(d.ref)
 	d.ref = C.occam_ref_nil()
+
+	// Only safe once the handle is closed: until then the device may still be
+	// writing input reports into the scratch buffer.
+	if d.box != nil {
+		C.occam_inbox_free(d.box)
+		d.box = nil
+	}
 	return nil
 }
 
@@ -422,20 +442,17 @@ var ErrTimeout = errors.New("hid: no reply before the timeout")
 // Registration and the run loop have to share a thread, so the goroutine is
 // pinned for the duration.
 func (d *Device) Request(reportID byte, out []byte, timeout time.Duration) ([]byte, error) {
-	if d == nil || C.occam_ref_null(d.ref) != 0 {
+	if d == nil || C.occam_ref_null(d.ref) != 0 || d.box == nil {
 		return nil, errors.New("hid: device not open")
 	}
 
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	box := C.occam_inbox_new()
-	if box == nil {
-		return nil, errors.New("hid: could not allocate the input buffer")
-	}
-	defer C.occam_inbox_free(box)
+	box := d.box
+	C.occam_inbox_reset(box)
 
-	C.occam_listen_start(d.ref, box)
+	C.occam_listen_start(d.ref)
 	defer C.occam_listen_stop(d.ref)
 
 	if err := d.SetReport(reportID, out); err != nil {
@@ -467,20 +484,17 @@ const pollSlice = 50 * time.Millisecond
 // whether the device talks unprompted and whether the run loop is wired up at
 // all. Returns every distinct report seen before the timeout.
 func (d *Device) Listen(timeout time.Duration, onReport func(reportID byte, data []byte)) (int, error) {
-	if d == nil || C.occam_ref_null(d.ref) != 0 {
+	if d == nil || C.occam_ref_null(d.ref) != 0 || d.box == nil {
 		return 0, errors.New("hid: device not open")
 	}
 
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	box := C.occam_inbox_new()
-	if box == nil {
-		return 0, errors.New("hid: could not allocate the input buffer")
-	}
-	defer C.occam_inbox_free(box)
+	box := d.box
+	C.occam_inbox_reset(box)
 
-	C.occam_listen_start(d.ref, box)
+	C.occam_listen_start(d.ref)
 	defer C.occam_listen_stop(d.ref)
 
 	seen := 0

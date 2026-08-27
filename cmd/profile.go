@@ -9,59 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Slot is one EQ slot as the headset holds it.
-type Slot struct {
-	Order proto.Order
-	EQ    proto.EQ
-}
-
-// readSlot performs the two-call read Synapse uses. OrderInfo positions the
-// device's cursor; GetBands then returns the entry it is sitting on. Calling
-// GetBands alone gets a stale buffer back, with flags 0x00 rather than 0x80.
-func readSlot(dev *hid.Device, position byte) (Slot, error) {
-	var s Slot
-
-	order, err := ask(dev, proto.OrderInfo(position))
-	if err != nil {
-		return s, fmt.Errorf("order info for slot %d: %w", position, err)
-	}
-	if s.Order, err = proto.ParseOrder(order.Args); err != nil {
-		return s, err
-	}
-
-	bands, err := ask(dev, proto.GetBands(position))
-	if err != nil {
-		return s, fmt.Errorf("bands for slot %d: %w", position, err)
-	}
-	if len(bands.Args) < 1+proto.Bands {
-		return s, fmt.Errorf("slot %d returned %d argument bytes, need %d",
-			position, len(bands.Args), 1+proto.Bands)
-	}
-	if s.EQ, err = proto.ParseBands(bands.Args[1 : 1+proto.Bands]); err != nil {
-		return s, err
-	}
-	return s, nil
-}
-
-func ask(dev *hid.Device, m *proto.Message) (*proto.Message, error) {
-	out, err := m.Encode()
-	if err != nil {
-		return nil, err
-	}
-	in, err := dev.Request(proto.ReportID, out, replyTimeout)
-	if err != nil {
-		return nil, err
-	}
-	reply, err := proto.Decode(in)
-	if err != nil {
-		return nil, err
-	}
-	if reply.Status != proto.StatusSuccess {
-		return nil, fmt.Errorf("device replied %s", proto.StatusText(reply.Status))
-	}
-	return reply, nil
-}
-
 func newProfile() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "profile",

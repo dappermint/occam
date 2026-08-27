@@ -12,10 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// interFrame is the gap Synapse leaves between transfers. The device layer
-// logs it as sleepTimeBetweenOut: 30, so this is measured, not guessed.
-const interFrame = 30 * time.Millisecond
-
 type step struct {
 	name string
 	msg  *proto.Message

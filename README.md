@@ -33,6 +33,8 @@ firmware   01 03 03 00
 
 - 10-band EQ across nine onboard slots, `occam eq`
 - reading every slot back with its metadata, `occam profile`
+- saving that to TOML and writing it back, `occam save` / `occam apply`
+- re-applying it whenever the dongle reconnects, `occam agent install`
 - battery, charging, firmware, serial, sidetone, `occam get`
 - watching the device talk, `occam listen`
 
@@ -45,9 +47,6 @@ $ occam profile
    ...
 ```
 
-still to come: a saved profile and a launchd agent that re-applies it when the
-dongle reconnects.
-
 there is no DSP volume or enhancement command. on the V3 Pro those are THX
 host-side processing, not device settings, so they do not exist over HID.
 
@@ -55,6 +54,27 @@ game/chat balance is already free: the dongle presents two CoreAudio output
 devices, so that is two volume sliders, not a protocol feature.
 
 firmware flashing is a hard non-goal. no DFU, no bootloader, ever.
+
+## persistence
+
+```
+occam save --all              # ~/.config/occam/profile.toml
+occam apply                   # write it back
+occam agent install           # launchd fires it on dongle attach
+```
+
+the agent uses launchd's IOKit matching rather than a timer, so nothing runs
+until the device actually appears.
+
+```toml
+# occam profile
+active = 3
+
+[[slot]]
+  index = 3
+  name = "game"
+  bands = [-2, -1, -1, -2, 3, 3, 0, 1, 2, 1]
+```
 
 ## the console
 

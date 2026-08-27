@@ -18,6 +18,22 @@ probe:
 console:
     go run . console
 
+# read every eq slot off the headset
+profile:
+    go run . profile
+
+# save the headset's current state to ~/.config/occam/profile.toml
+save:
+    go run . save --all
+
+# write the saved profile back to the headset
+apply:
+    go run . apply
+
+# install the launchd agent, needs a real binary not `go run`
+agent: build
+    ./occam agent install
+
 # preview the phase 4 frames without touching the device
 dry preset='game':
     go run . eq --preset {{ preset }} --dry-run

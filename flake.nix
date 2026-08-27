@@ -30,7 +30,7 @@
                 ./internal
               ];
             };
-            vendorHash = "sha256-1Hnm5I/qFYoew7z7yRSQ7WT/I0BurZvQS1yrzKC0k+g=";
+            vendorHash = "sha256-BTRjk/nocKp/rQk0/vfB+GvHNgRsj95HszZbYdUWPUk=";
             env.CGO_ENABLED = 1;
             ldflags = [
               "-s"

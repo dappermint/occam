@@ -4,15 +4,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/dappermint/occam/internal/hid"
 	"github.com/dappermint/occam/internal/proto"
 	"github.com/spf13/cobra"
 )
-
-// replyTimeout is generous: Synapse's own device layer retries a read ten times.
-const replyTimeout = 2 * time.Second
 
 type reader struct {
 	name string
