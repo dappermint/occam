@@ -41,11 +41,19 @@ func ModelByName(s string) (Model, error) {
 // binaural turns one mono sample into a contribution for each ear.
 type binaural interface {
 	process(x float64) (left, right float64)
+	// reset clears the delay lines and filter memory, so a calibration pass
+	// does not leave its tail in the first block of real audio.
+	reset()
 }
 
 // synthPair is the parametric model behind the same interface.
 type synthPair struct {
 	left, right earFilter
+}
+
+func (p *synthPair) reset() {
+	p.left.reset()
+	p.right.reset()
 }
 
 func (p *synthPair) process(x float64) (float64, float64) {
@@ -71,6 +79,11 @@ func newFIRPair(r hrir.Response) *firPair {
 		right: r.Right,
 		hist:  make([]float64, n),
 	}
+}
+
+func (p *firPair) reset() {
+	clear(p.hist)
+	p.at = 0
 }
 
 func (p *firPair) process(x float64) (float64, float64) {

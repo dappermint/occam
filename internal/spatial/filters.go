@@ -25,6 +25,11 @@ func newFracDelay(samples float64) fracDelay {
 	return fracDelay{buf: make([]float64, whole+2), whole: whole, frac: frac}
 }
 
+func (d *fracDelay) reset() {
+	clear(d.buf)
+	d.at = 0
+}
+
 func (d *fracDelay) process(x float64) float64 {
 	d.buf[d.at] = x
 	n := len(d.buf)
@@ -42,6 +47,8 @@ type onePole struct {
 	a    float64
 	prev float64
 }
+
+func (f *onePole) reset() { f.prev = 0 }
 
 func newOnePole(cutoff float64, rate int) onePole {
 	if cutoff >= float64(rate)/2 {
@@ -63,6 +70,8 @@ type biquad struct {
 	x1, x2     float64
 	y1, y2     float64
 }
+
+func (f *biquad) reset() { f.x1, f.x2, f.y1, f.y2 = 0, 0, 0, 0 }
 
 // newNotch builds a band-reject at freq. depth is 0 for no cut and 1 for a
 // full null; the pinna notch is deep but never total.

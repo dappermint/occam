@@ -216,14 +216,22 @@ func WriteWAV(path string, a Audio) error {
 	return err
 }
 
-// clamp keeps a sample inside full scale. Rendering sums several virtual
-// speakers into one ear, so overshoot is normal and has to be caught.
+// clamp keeps a sample inside full scale, rounding off above the knee rather
+// than flat-topping at it.
+//
+// Levelling the output to match the input leaves peaks around 1.2, because
+// summing several decorrelated copies of one signal raises crest factor
+// without raising average energy. A hard limit would audibly flatten those.
+// Continuous in value and slope at the knee and asymptotic to 1, so nothing is
+// needed behind it.
 func clamp(v float64) float64 {
-	if v > 1 {
-		return 1
+	const knee = 0.7
+	const room = 1 - knee
+
+	mag := math.Abs(v)
+	if mag <= knee {
+		return v
 	}
-	if v < -1 {
-		return -1
-	}
-	return v
+	over := mag - knee
+	return math.Copysign(knee+room*over/(over+room), v)
 }

@@ -148,6 +148,12 @@ func newEarFilter(d Direction, e Ear, rate int) earFilter {
 	}
 }
 
+func (f *earFilter) reset() {
+	f.delay.reset()
+	f.shadow.reset()
+	f.notch.reset()
+}
+
 func (f *earFilter) process(x float64) float64 {
 	y := f.delay.process(x) * f.gain
 	y = f.shadow.process(y)

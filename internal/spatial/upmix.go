@@ -47,6 +47,17 @@ func NewUpmixer(target Layout, rate int) *Upmixer {
 	return u
 }
 
+// Reset clears the lowpass and decorrelator state.
+func (u *Upmixer) Reset() {
+	u.lp1.reset()
+	u.lp2.reset()
+	for _, d := range u.decor {
+		if d != nil {
+			d.reset()
+		}
+	}
+}
+
 // isFrontal reports whether a speaker keeps the original channel rather than
 // carrying synthesised ambience.
 func isFrontal(s Speaker) bool {
@@ -142,6 +153,11 @@ func newAllpass(rate, seed int) *allpass {
 	ms := 7.0 + float64(seed)*3.5
 	n := max(1, int(ms*float64(rate)/1000))
 	return &allpass{buf: make([]float64, n), gain: 0.6}
+}
+
+func (a *allpass) reset() {
+	clear(a.buf)
+	a.at = 0
 }
 
 func (a *allpass) process(x float64) float64 {

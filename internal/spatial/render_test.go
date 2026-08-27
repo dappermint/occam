@@ -274,3 +274,80 @@ func TestLayoutLookup(t *testing.T) {
 		t.Error("7 channels matches no standard layout")
 	}
 }
+
+// The old norm was 1/sqrt(speaker count), which is about 7 dB too quiet
+// because an upmix derives every feed from one mid/side pair and they sum
+// close to coherently rather than incoherently.
+func TestPipelineIsLevelMatched(t *testing.T) {
+	for _, name := range []string{"7.1", "7.1.4"} {
+		t.Run(name, func(t *testing.T) {
+			layout, err := LayoutByName(name)
+			if err != nil {
+				t.Skipf("no layout %s: %v", name, err)
+			}
+			p, err := NewPipeline(layout, 48000, 1024, Measured)
+			if err != nil {
+				t.Skipf("no measured model: %v", err)
+			}
+
+			const n = 32768
+			inL, inR := correlatedNoise(n)
+			outL := make([]float64, n)
+			outR := make([]float64, n)
+			for at := 0; at < n; at += 1024 {
+				if err := p.Process(inL[at:at+1024], inR[at:at+1024],
+					outL[at:at+1024], outR[at:at+1024]); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Skipping the head, where the filters are still filling.
+			var sumIn, sumOut float64
+			for i := 4096; i < n; i++ {
+				sumIn += inL[i]*inL[i] + inR[i]*inR[i]
+				sumOut += outL[i]*outL[i] + outR[i]*outR[i]
+			}
+			db := 20 * math.Log10(math.Sqrt(sumOut/sumIn))
+			if math.Abs(db) > 1.5 {
+				t.Errorf("output is %+.2f dB against the input, want within 1.5", db)
+			}
+		})
+	}
+}
+
+func correlatedNoise(n int) (l, r []float64) {
+	l, r = make([]float64, n), make([]float64, n)
+	seed := uint64(12345)
+	for i := range n {
+		seed = seed*6364136223846793005 + 1442695040888963407
+		v := (float64(seed>>11)/float64(1<<53)*2 - 1) * 0.5
+		l[i], r[i] = v, v
+	}
+	return l, r
+}
+
+func TestClampIsSoft(t *testing.T) {
+	for i := 0; i <= 70; i++ {
+		v := float64(i) / 100
+		if clamp(v) != v || clamp(-v) != -v {
+			t.Fatalf("clamp is not transparent at %v", v)
+		}
+	}
+	for _, v := range []float64{0.71, 1, 1.2, 2, 1e6} {
+		if got := clamp(v); got >= 1 {
+			t.Errorf("clamp(%v) = %v, want under 1", v, got)
+		}
+		if got := clamp(-v); got <= -1 {
+			t.Errorf("clamp(%v) = %v, want over -1", -v, got)
+		}
+	}
+
+	prev := clamp(0)
+	for x := 0.0; x < 4; x += 0.001 {
+		y := clamp(x)
+		if y < prev || y-prev > 0.002 {
+			t.Fatalf("clamp jumps or reverses at %v: %v -> %v", x, prev, y)
+		}
+		prev = y
+	}
+}

@@ -174,10 +174,12 @@ Already have multichannel audio? Just render it:
 
   occam-spatial movie-5.1.wav
 
-Peak is reported rather than normalised: streaming means the loudest sample is
-not known until the end. Use --gain to level match, and note that comparing a
-render against its source needs loudness matching, not peak matching, since
-binaural summing keeps peaks while dropping average energy.
+Output is levelled to the input, measured through the chain at startup rather
+than derived from the speaker count. Peaks still land a little over full scale,
+since summing decorrelated copies of one signal raises crest factor without
+raising average energy, and a soft knee rounds those off. Peak is reported
+rather than normalised: streaming means the loudest sample is not known until
+the end.
 
 Flags:
 `)

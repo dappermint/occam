@@ -44,6 +44,20 @@ func NewPipeline(target Layout, rate, blockSize int, model Model) (*Pipeline, er
 	}
 	if target.Channels() > 2 {
 		p.upmixer = NewUpmixer(target, rate)
+
+		// The renderer calibrated itself against bare channels, but an upmix
+		// splits one stereo pair across them: the front carries the whole
+		// signal and the surrounds only the side component. Re-measure through
+		// both stages so the level matches the stereo that went in.
+		one := make([]float64, 1)
+		p.renderer.calibrate(func(noise float64, bed [][]float64, i int) {
+			one[0] = noise
+			p.upmixer.Block(one, one, bed, 1)
+			for c := range bed {
+				bed[c][i] = bed[c][0]
+			}
+		})
+		p.upmixer.Reset()
 	}
 	return p, nil
 }
