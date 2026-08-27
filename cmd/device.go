@@ -75,15 +75,16 @@ func ask(dev *hid.Device, m *proto.Message) (*proto.Message, error) {
 	return reply, err
 }
 
-// send writes a message without waiting for a reply.
+// send writes a message and discards the reply.
+//
+// It has to read that reply even though nothing wants it. The device answers
+// every command on one interrupt-IN pipe, so a write whose reply is left
+// queued desynchronises the next read: a get would come back holding the set's
+// answer. Reading it also means a device-level rejection surfaces here rather
+// than being reported as success.
 func send(dev *hid.Device, m *proto.Message) error {
-	out, err := m.Encode()
+	_, err := ask(dev, m)
 	if err != nil {
-		return err
-	}
-	if err := retry(proto.CommandName(m.Command), func() error {
-		return dev.SetReport(proto.ReportID, out)
-	}); err != nil {
 		return err
 	}
 	time.Sleep(interFrame)
