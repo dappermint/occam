@@ -230,7 +230,7 @@ is always something that runs.
 ## realtime
 
 ```
-just live            # or: occam-live --frames 128
+just mix             # or: occmixer --frames 128
 ```
 
 a third binary, in rust, rendering system audio to binaural as it plays. no
@@ -244,8 +244,15 @@ rust rather than go because the dsp runs inside the render callback. go would
 need a ring buffer to keep its garbage collector off that thread, and the ring
 costs a block of latency. 128 frames is 2.7 ms a cycle and runs clean.
 
-the tap excludes occam-live's own process. that is load-bearing: a global tap
+the tap excludes occmixer's own process. that is load-bearing: a global tap
 mutes what it captures, so one that excludes nothing mutes our own output too.
+
+output level is measured, not assumed. dividing by the square root of the
+speaker count is the obvious guess and it is 7 db too quiet, because the upmix
+derives all seven feeds from one mid/side pair and they sum coherently. so a
+known signal goes through the chain at startup and the scale comes out of what
+it measures. loudness parity leaves peaks about 2x over full scale, which a
+soft knee rounds off rather than the clamp that used to catch them.
 
 ## protocol
 

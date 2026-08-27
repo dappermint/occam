@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "occam-live"
+name = "occmixer"
 version = "0.1.0"

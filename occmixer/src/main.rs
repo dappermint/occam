@@ -88,7 +88,7 @@ extern "C" fn render(
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("occam-live: {e}");
+        eprintln!("occmixer: {e}");
         std::process::exit(1);
     }
 }
@@ -159,7 +159,7 @@ fn run() -> Result<(), String> {
         let pipe = match Pipeline::new(speakers, &set, rate as f32, 10f32.powf(gain_db / 20.0)) {
             Ok(p) => p,
             Err(e) => {
-                eprintln!("occam-live: {e}");
+                eprintln!("occmixer: {e}");
                 sleep_ms(5000);
                 continue;
             }
@@ -183,7 +183,7 @@ fn run() -> Result<(), String> {
         let status = unsafe { sys::occam_live_start(out_device, frames, render, ctx) };
         if status != 0 {
             eprintln!(
-                "occam-live: starting the tap failed: {status} ({})",
+                "occmixer: starting the tap failed: {status} ({})",
                 sys::status_name(status)
             );
             sleep_ms(5000);
@@ -289,9 +289,9 @@ unsafe extern "C" {
 
 fn usage() {
     println!(
-        "occam-live renders macOS system audio to binaural, in realtime.
+        "occmixer renders macOS system audio to binaural, in realtime.
 
-  occam-live [--device NAME] [--layout 7.1|7.1.4] [--frames N] [--gain DB]
+  occmixer [--device NAME] [--layout 7.1|7.1.4] [--frames N] [--gain DB]
 
 It taps system output, upmixes what it captures, renders it through measured
 head impulses, and plays the result to the headset. The tap mutes the original

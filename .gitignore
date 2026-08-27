@@ -6,4 +6,4 @@
 
 # vendor logs, they carry the device serial
 /logs/
-/occam-live/target/
+/occmixer/target/
