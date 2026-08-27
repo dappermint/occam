@@ -143,7 +143,16 @@ func newSave() *cobra.Command {
 			}
 			defer dev.Close()
 
+			// Keep whatever names are already on disk: a save that silently
+			// wiped them would be infuriating.
 			p := profile.New()
+			existing := map[int]string{}
+			if old, err := profile.Load(resolved); err == nil {
+				for _, s := range old.Slots {
+					existing[s.Index] = s.Name
+				}
+			}
+
 			for pos := byte(0); pos < proto.Slots; pos++ {
 				s, err := readSlot(dev, pos)
 				if err != nil {
@@ -153,7 +162,11 @@ func newSave() *cobra.Command {
 					p.Active = int(pos)
 				}
 				if all || s.Order.Active {
-					p.Slots = append(p.Slots, profile.FromEQ(int(pos), "", s.EQ))
+					name := existing[int(pos)]
+					if name == "" {
+						name = profile.DefaultNames(int(pos))
+					}
+					p.Slots = append(p.Slots, profile.FromEQ(int(pos), name, s.EQ))
 				}
 			}
 

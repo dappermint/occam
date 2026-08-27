@@ -18,6 +18,7 @@ int occam_menu_set_symbol(const char *name, const char *fallback);
 void occam_menu_set_title(const char *title);
 void occam_menu_clear(void);
 void occam_menu_add(const char *title, int tag, int checked, int enabled);
+void occam_menu_add_section(const char *title);
 void occam_menu_add_separator(void);
 void occam_menu_run(void);
 void occam_menu_quit(void);
@@ -30,17 +31,21 @@ import (
 	"unsafe"
 )
 
-// Item is one row. A Separator ignores every other field.
+// Item is one row. Separator and Section ignore the other fields.
 type Item struct {
 	Title     string
 	Tag       int
 	Checked   bool
 	Disabled  bool
 	Separator bool
+	Section   bool
 }
 
 // Sep is a separator row.
 func Sep() Item { return Item{Separator: true} }
+
+// Section is a system-drawn section header.
+func Section(title string) Item { return Item{Title: title, Section: true} }
 
 // AppKit gives no way to pass a Go pointer through a menu action, so the one
 // live menu lives here. There is only ever one status item.
@@ -111,6 +116,12 @@ func render() {
 	for _, it := range fn() {
 		if it.Separator {
 			C.occam_menu_add_separator()
+			continue
+		}
+		if it.Section {
+			h := C.CString(it.Title)
+			C.occam_menu_add_section(h)
+			C.free(unsafe.Pointer(h))
 			continue
 		}
 		c := C.CString(it.Title)

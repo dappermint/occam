@@ -91,6 +91,21 @@ void occam_menu_add(const char *title, int tag, int checked, int enabled) {
 	}
 }
 
+// Real section headers, the way the system menus draw them. Added in macOS 14;
+// older systems fall back to a disabled row.
+void occam_menu_add_section(const char *title) {
+	@autoreleasepool {
+		NSString *t = [NSString stringWithUTF8String:title];
+		if ([NSMenuItem respondsToSelector:@selector(sectionHeaderWithTitle:)]) {
+			[gMenu addItem:[NSMenuItem sectionHeaderWithTitle:t]];
+			return;
+		}
+		NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:t action:nil keyEquivalent:@""];
+		[item setEnabled:NO];
+		[gMenu addItem:item];
+	}
+}
+
 void occam_menu_add_separator(void) {
 	@autoreleasepool {
 		[gMenu addItem:[NSMenuItem separatorItem]];

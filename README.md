@@ -89,9 +89,21 @@ Save Current to Profile
 Quit occam
 ```
 
-it does everything `occam watch` does, so it replaces it in the launchd agent.
-slot names are the one thing missing: razer keeps those in a cloud eq library
-keyed by `cloudEqId` and that mapping is not in the logs.
+it does everything `occam watch` does, so `occam agent install` runs this and
+starts it at login. `KeepAlive` is deliberately off: quitting from the menu
+should quit.
+
+slot names come from your profile, so rename them there and the menu follows:
+
+```toml
+[[slot]]
+  index = 3
+  name = "footsteps"
+```
+
+razer's own names live in a cloud eq library keyed by `cloudEqId` and are not
+available offline, so a fresh `occam save` seeds `EQ 1` through `EQ 9` for you
+to edit. `save` never overwrites a name you have set.
 
 ## persistence
 

@@ -172,7 +172,8 @@ func newMenu() *cobra.Command {
 				st.refresh()
 			}
 
-			if err := menu.Run("headphones", "occam", func() []menu.Item { return items(st) }, click); err != nil {
+			names := slotNames(p)
+			if err := menu.Run("headphones", "occam", func() []menu.Item { return items(st, names) }, click); err != nil {
 				return err
 			}
 			return nil
@@ -182,43 +183,40 @@ func newMenu() *cobra.Command {
 	return c
 }
 
-// items mirrors Synapse's own layout for this device: a SOUND section holding
-// the EQ, then POWER. Section names and the band frequencies are Razer's, read
-// out of the product page logs.
-func items(st *state) []menu.Item {
+// items mirrors Synapse's own layout for this device: a Sound section holding
+// the slots, then the active curve. Band frequencies are Razer's, read out of
+// the product page logs.
+func items(st *state, names map[int]string) []menu.Item {
 	s := st.snapshot()
 
 	if !s.connected {
 		return []menu.Item{
-			{Title: "BlackShark V3 Pro not connected", Tag: tagInert, Disabled: true},
+			{Title: "No headset connected", Tag: tagInert, Disabled: true},
 			menu.Sep(),
 			{Title: "Refresh", Tag: tagRefresh},
-			menu.Sep(),
 			{Title: "Quit occam", Tag: tagQuit},
 		}
 	}
 
 	out := []menu.Item{
-		{Title: "Razer BlackShark V3 Pro", Tag: tagInert, Disabled: true},
-		{Title: "  " + powerLine(s), Tag: tagInert, Disabled: true},
-		menu.Sep(),
-		{Title: "SOUND", Tag: tagInert, Disabled: true},
+		{Title: "BlackShark V3 Pro", Tag: tagInert, Disabled: true},
+		{Title: powerLine(s), Tag: tagInert, Disabled: true},
+		menu.Section("Sound"),
 	}
 
-	for i, sl := range s.slots {
+	for i := range s.slots {
 		out = append(out, menu.Item{
-			Title:   fmt.Sprintf("  %s", slotName(i, sl)),
+			Title:   slotName(i, names),
 			Tag:     i,
 			Checked: i == s.active,
 		})
 	}
 
-	// The active curve, laid out the way the Synapse sliders are labelled.
 	if s.active >= 0 && s.active < len(s.slots) {
-		out = append(out, menu.Sep(), menu.Item{Title: "EQUALIZER", Tag: tagInert, Disabled: true})
+		out = append(out, menu.Section("Equalizer"))
 		for _, r := range s.slots[s.active].EQ.Rows() {
 			out = append(out, menu.Item{
-				Title:    fmt.Sprintf("  %-6s %+d dB", r.Label, r.Level),
+				Title:    fmt.Sprintf("%-6s %+d dB", r.Label, r.Level),
 				Tag:      tagInert,
 				Disabled: true,
 			})
@@ -247,20 +245,14 @@ func items(st *state) []menu.Item {
 	)
 }
 
-// slotName is the best label available offline. Razer names its slots from a
-// cloud EQ library keyed by cloudEqId, and that mapping is not in the logs, so
-// a custom slot gets its index and everything else gets its cloud id.
-func slotName(i int, sl Slot) string {
-	switch {
-	case sl.Order.Custom:
-		return fmt.Sprintf("Custom %d", i)
-	case sl.Order.CloudID != 0:
-		return fmt.Sprintf("Preset %d", sl.Order.CloudID)
-	case i == 0:
-		return "Default"
-	default:
-		return fmt.Sprintf("Slot %d", i)
+// slotName prefers the name from the profile. Razer resolves its own names
+// from a cloud library keyed by cloudEqId and that mapping is not available
+// offline, so the fallback is a plain one-based number rather than a guess.
+func slotName(i int, names map[int]string) string {
+	if n := names[i]; n != "" {
+		return n
 	}
+	return fmt.Sprintf("EQ %d", i+1)
 }
 
 func powerLine(s view) string {
@@ -272,6 +264,14 @@ func powerLine(s view) string {
 	default:
 		return fmt.Sprintf("%s, %d%%", s.transport, s.battery)
 	}
+}
+
+func slotNames(p *profile.Profile) map[int]string {
+	names := make(map[int]string, len(p.Slots))
+	for _, sl := range p.Slots {
+		names[sl.Index] = sl.Name
+	}
+	return names
 }
 
 func truncate(s string, n int) string {
@@ -291,10 +291,17 @@ func saveFromDevice(override string, st *state) {
 		return
 	}
 
+	existing := map[int]string{}
+	if old, err := profile.Load(resolved); err == nil {
+		for _, sl := range old.Slots {
+			existing[sl.Index] = sl.Name
+		}
+	}
+
 	p := profile.New()
 	p.Active = s.active
 	for i, sl := range s.slots {
-		p.Slots = append(p.Slots, profile.FromEQ(i, "", sl.EQ))
+		p.Slots = append(p.Slots, profile.FromEQ(i, existing[i], sl.EQ))
 	}
 	if err := profile.Save(resolved, p); err != nil {
 		fmt.Fprintln(os.Stderr, "save:", err)

@@ -13,8 +13,10 @@ import (
 
 const agentLabel = "com.dappermint.occam"
 
-// agentPlist keeps one occam watch running. It does not use launchd's IOKit
-// matching, and that is deliberate.
+// agentPlist keeps one occam menu running. The menu bar app does everything
+// occam watch does, so there is no reason to run both.
+//
+// It does not use launchd's IOKit matching, and that is deliberate.
 //
 // LaunchEvents with com.apple.iokit.matching requires IOMatchLaunchStream,
 // which hands the job an XPC event stream it is expected to drain with
@@ -25,6 +27,9 @@ const agentLabel = "com.dappermint.occam"
 //
 // So: one long-lived process that blocks on an in-process IOKit attach
 // notification. It is asleep until the kernel posts an arrival.
+//
+// KeepAlive is deliberately absent: quitting from the menu should quit, not
+// get the process resurrected a second later. RunAtLoad starts it at login.
 const agentPlist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -34,11 +39,9 @@ const agentPlist = `<?xml version="1.0" encoding="UTF-8"?>
 	<key>ProgramArguments</key>
 	<array>
 		<string>%s</string>
-		<string>watch</string>
+		<string>menu</string>
 	</array>
 	<key>RunAtLoad</key>
-	<true/>
-	<key>KeepAlive</key>
 	<true/>
 	<key>ThrottleInterval</key>
 	<integer>10</integer>
@@ -108,8 +111,8 @@ func newAgentInstall() *cobra.Command {
 
 			body := fmt.Sprintf(agentPlist,
 				agentLabel, binary,
-				filepath.Join(logDir, "watch.log"),
-				filepath.Join(logDir, "watch.err"))
+				filepath.Join(logDir, "occam.log"),
+				filepath.Join(logDir, "occam.err"))
 
 			if print {
 				fmt.Print(body)
@@ -142,7 +145,7 @@ func newAgentInstall() *cobra.Command {
 			fmt.Printf("  %s %s\n", styleKey.Render(fmt.Sprintf("%-9s", "plist")), plistPath)
 			fmt.Printf("  %s %s\n", styleKey.Render(fmt.Sprintf("%-9s", "binary")), binary)
 			fmt.Printf("  %s %s\n", styleKey.Render(fmt.Sprintf("%-9s", "logs")), logDir)
-			fmt.Println(styleDim.Render("\n  unplug and replug the dongle, then: tail ~/Library/Logs/occam/watch.log"))
+			fmt.Println(styleDim.Render("\n  the headphones icon is in the menu bar, and it starts at login"))
 			return nil
 		},
 	}

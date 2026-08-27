@@ -132,6 +132,14 @@ func (s Slot) EQ() (proto.EQ, error) {
 	return eq, nil
 }
 
+// DefaultNames seeds a fresh profile so the menu bar has something readable
+// before anyone edits the file. Razer's own slot names live in a cloud EQ
+// library keyed by cloudEqId and are not available offline, so these are just
+// stable placeholders, not a claim about what the headset calls them.
+func DefaultNames(index int) string {
+	return fmt.Sprintf("EQ %d", index+1)
+}
+
 // FromEQ builds a slot from a wire curve.
 func FromEQ(index int, name string, eq proto.EQ) Slot {
 	bands := make([]int, proto.Bands)
