@@ -30,9 +30,9 @@ save:
 apply:
     go run . apply
 
-# install the launchd agent, needs a real binary not `go run`
-agent: build
-    ./occam agent install
+# install to GOBIN then point the launchd agent at it, survives `just clean`
+agent: install
+    occam agent install
 
 # preview the phase 4 frames without touching the device
 dry preset='game':
