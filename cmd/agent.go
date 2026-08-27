@@ -6,16 +6,25 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"github.com/dappermint/occam/internal/hid"
 	"github.com/spf13/cobra"
 )
 
 const agentLabel = "com.dappermint.occam"
 
-// agentPlist is a launchd job that fires on device attach rather than polling.
-// launchd's IOKit matching wakes it when the dongle appears, so nothing runs
-// in between. occam watch --once applies and exits.
+// agentPlist keeps one occam watch running. It does not use launchd's IOKit
+// matching, and that is deliberate.
+//
+// LaunchEvents with com.apple.iokit.matching requires IOMatchLaunchStream,
+// which hands the job an XPC event stream it is expected to drain with
+// xpc_set_event_stream_handler. A job that does not drain it leaves the event
+// pending, so launchd relaunches immediately and forever: measured here at one
+// relaunch every eleven seconds. Draining it means becoming a long-lived XPC
+// daemon, at which point run-once has bought nothing.
+//
+// So: one long-lived process polling the bus. hid.List costs microseconds and
+// the default interval is five seconds.
 const agentPlist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -26,36 +35,17 @@ const agentPlist = `<?xml version="1.0" encoding="UTF-8"?>
 	<array>
 		<string>%s</string>
 		<string>watch</string>
-		<string>--once</string>
+		<string>--interval</string>
+		<string>%s</string>
 	</array>
-	<key>LaunchEvents</key>
-	<dict>
-		<key>com.apple.iokit.matching</key>
-		<dict>
-			<key>%s.dongle</key>
-			<dict>
-				<key>IOMatchLaunchStream</key>
-				<true/>
-				<key>IOProviderClass</key>
-				<string>IOUSBHostDevice</string>
-				<key>idVendor</key>
-				<integer>%d</integer>
-				<key>idProduct</key>
-				<integer>%d</integer>
-			</dict>
-			<key>%s.wired</key>
-			<dict>
-				<key>IOMatchLaunchStream</key>
-				<true/>
-				<key>IOProviderClass</key>
-				<string>IOUSBHostDevice</string>
-				<key>idVendor</key>
-				<integer>%d</integer>
-				<key>idProduct</key>
-				<integer>%d</integer>
-			</dict>
-		</dict>
-	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+	<key>ProcessType</key>
+	<string>Background</string>
 	<key>StandardOutPath</key>
 	<string>%s</string>
 	<key>StandardErrorPath</key>
@@ -85,6 +75,7 @@ func newAgent() *cobra.Command {
 func newAgentInstall() *cobra.Command {
 	var binary string
 	var print bool
+	var interval time.Duration
 
 	c := &cobra.Command{
 		Use:   "install",
@@ -119,9 +110,7 @@ func newAgentInstall() *cobra.Command {
 			}
 
 			body := fmt.Sprintf(agentPlist,
-				agentLabel, binary,
-				agentLabel, hid.Razer, hid.V3ProDongle,
-				agentLabel, hid.Razer, hid.V3ProWired,
+				agentLabel, binary, interval,
 				filepath.Join(logDir, "watch.log"),
 				filepath.Join(logDir, "watch.err"))
 
@@ -147,12 +136,13 @@ func newAgentInstall() *cobra.Command {
 			fmt.Printf("  %s %s\n", styleKey.Render(fmt.Sprintf("%-9s", "plist")), plistPath)
 			fmt.Printf("  %s %s\n", styleKey.Render(fmt.Sprintf("%-9s", "binary")), binary)
 			fmt.Printf("  %s %s\n", styleKey.Render(fmt.Sprintf("%-9s", "logs")), logDir)
-			fmt.Println(styleDim.Render("\n  unplug and replug the dongle to test it"))
+			fmt.Println(styleDim.Render("\n  unplug and replug the dongle, then: tail ~/Library/Logs/occam/watch.log"))
 			return nil
 		},
 	}
 	c.Flags().StringVar(&binary, "binary", "", "path to the occam binary, defaults to this one")
 	c.Flags().BoolVar(&print, "print", false, "print the plist instead of installing it")
+	c.Flags().DurationVar(&interval, "interval", 5*time.Second, "how often the agent checks the bus")
 	return c
 }
 
