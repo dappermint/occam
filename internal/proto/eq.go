@@ -205,13 +205,18 @@ type MicPreset struct {
 	Bands EQ
 }
 
-// MicPresets are those four, names read off the tooltips and curves read out
-// of the capture rather than estimated from the sliders.
+// MicPresets are those four. Each curve is what the device reports back from
+// getMicCustomerEQBand once the matching index is selected, so the pairing is
+// measured rather than assumed.
+//
+// The names are Synapse's, not the firmware's. getMicPresetEQIndex also
+// returns an eqPresetEnum, but it calls 0x21 "MicBoost" while the curve it
+// applies is flat, and 0x23 "Conference" for the one Synapse labels esports.
 var MicPresets = []MicPreset{
 	{MicPresetBase + 0, "Default", EQ{-5, -4, -4, -3, -2, 1, 2, 3, 3, 3}},
-	{MicPresetBase + 1, "Esports", EQ{-6, -5, -5, -4, 0, 1, 1, 1, 1, 1}},
+	{MicPresetBase + 1, "Flat", EQ{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
 	{MicPresetBase + 2, "Broadcast", EQ{5, 4, 3, 1, -1, 0, 2, 3, 4, 4}},
-	{MicPresetBase + 3, "Flat", EQ{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+	{MicPresetBase + 3, "Esports", EQ{-6, -5, -5, -4, 0, 1, 1, 1, 1, 1}},
 }
 
 // MicPresetNames lists them for a picker.

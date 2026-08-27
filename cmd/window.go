@@ -148,17 +148,34 @@ func (e *editor) setMicPreset(row int) {
 	e.write("mic preset", m)
 
 	// Selecting a preset replaces the curve, so pull the new one back.
-	if dev, err := hid.Open(hid.Razer, hid.BlackSharkV3Pro...); err == nil {
-		if r, err := ask(dev, proto.MicBands()); err == nil && len(r.Args) >= proto.Bands {
-			if eq, err := proto.ParseBands(r.Args[:proto.Bands]); err == nil {
-				e.mu.Lock()
-				e.micEQ = eq
-				e.mu.Unlock()
-				menu.RunOnMain(func() { menu.SetMicBands(bandsOf(eq)) })
-			}
-		}
-		dev.Close()
+	eq, err := e.readMicBands()
+	if err != nil {
+		msg := truncate("mic preset: "+err.Error(), 40)
+		menu.RunOnMain(func() { menu.SetStatus(msg) })
+		return
 	}
+
+	e.mu.Lock()
+	e.micEQ = eq
+	e.mu.Unlock()
+	menu.RunOnMain(func() { menu.SetMicBands(bandsOf(eq)) })
+}
+
+func (e *editor) readMicBands() (proto.EQ, error) {
+	dev, err := hid.Open(hid.Razer, hid.BlackSharkV3Pro...)
+	if err != nil {
+		return proto.EQ{}, err
+	}
+	defer dev.Close()
+
+	r, err := ask(dev, proto.MicBands())
+	if err != nil {
+		return proto.EQ{}, err
+	}
+	if len(r.Args) < proto.Bands {
+		return proto.EQ{}, fmt.Errorf("reply carries %d bands, want %d", len(r.Args), proto.Bands)
+	}
+	return proto.ParseBands(r.Args[:proto.Bands])
 }
 
 // flush writes the current curve to the slot being edited.

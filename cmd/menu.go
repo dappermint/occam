@@ -174,6 +174,8 @@ func newMenu() *cobra.Command {
 			names := slotNames(p)
 			menu.BuildWindow(bandLabels(), bandMin, bandMax, menu.WindowHandlers{
 				OnBand:       ed.setBand,
+				OnMicBand:    ed.setMicBand,
+				OnMicPreset:  ed.setMicPreset,
 				OnSlot:       func(slot int) { ed.selectSlotFromWindow(slot, st) },
 				OnSidetone:   ed.setSidetone,
 				OnANC:        ed.setANC,
