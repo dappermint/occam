@@ -10,12 +10,13 @@ import (
 	"github.com/dappermint/occam/internal/proto"
 )
 
-// Band range the sliders offer. Captured curves only ever used -4 to +5, but
-// the encoding carries a full signed magnitude and Synapse's own sliders run
-// to twelve.
+// Band range, read off Synapse's own axis: it is labelled +6dB at the top and
+// -6dB at the bottom. The sign-magnitude encoding could carry more, and
+// captured curves only ever used -4 to +5, but there is no reason to offer a
+// range the vendor's own UI does not.
 const (
-	bandMin = -12
-	bandMax = 12
+	bandMin = -6
+	bandMax = 6
 )
 
 // writeDelay coalesces slider drags. Every tick would otherwise be a bracketed

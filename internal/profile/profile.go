@@ -133,10 +133,13 @@ func (s Slot) EQ() (proto.EQ, error) {
 }
 
 // DefaultNames seeds a fresh profile so the menu bar has something readable
-// before anyone edits the file. Razer's own slot names live in a cloud EQ
-// library keyed by cloudEqId and are not available offline, so these are just
-// stable placeholders, not a claim about what the headset calls them.
+// before anyone edits the file. The first six are Synapse's own labels, read
+// off its Audio Equalizer tab; the rest scroll off the edge of that row and
+// fall back to a number.
 func DefaultNames(index int) string {
+	if index >= 0 && index < len(proto.PresetNames) {
+		return proto.PresetNames[index]
+	}
 	return fmt.Sprintf("EQ %d", index+1)
 }
 

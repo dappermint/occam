@@ -17,8 +17,21 @@ const Slots = 9
 // and 0x81 to 0x84, so +5 and -4 are the extremes actually observed.
 const signBit byte = 0x80
 
+// BandGroups are the ranges Synapse prints beneath the frequency axis.
+var BandGroups = []struct {
+	Name  string
+	First int
+	Last  int
+}{
+	{"Sub Bass", 0, 0},
+	{"Bass", 1, 2},
+	{"Mid Range", 3, 6},
+	{"Treble", 7, 9},
+}
+
 // BandLabels are the centre frequencies Razer's own UI prints under each
-// slider, lifted from the Synapse product page logs. Ten bands, ten labels.
+// slider. Extracted from the Synapse product page logs, then confirmed against
+// a screenshot of the Audio Equalizer tab. Ten bands, ten labels.
 var BandLabels = [Bands]string{
 	"31Hz", "63Hz", "125Hz", "250Hz", "500Hz",
 	"1kHz", "2kHz", "4kHz", "8kHz", "16kHz",
@@ -186,10 +199,29 @@ func SetMicMuted(muted bool) *Message {
 // DongleLED reads the dongle's indicator state.
 func DongleLED() *Message { return New(GetDongleLEDStatus, 0x00) }
 
-// LEDModes are the three values the indicator light accepts. Synapse's logs
-// carry indicatorLedStatus 0, 1 and 2 but no names for them, so these labels
-// are ours.
-var LEDModes = []string{"Off", "On", "Auto"}
+// LEDModes are the three values the indicator light accepts. They choose what
+// the light reports, not how bright it is.
+//
+// Synapse's logs carry indicatorLedStatus 0, 1 and 2 and never a label; the
+// strings live in Razer's remote UI bundle. These names come from the device
+// owner, and the order is their reading of the Synapse list.
+// PresetNames are the slot labels Synapse shows, read off the Audio Equalizer
+// tab. Only the first six were visible; the headset holds nine and the rest
+// scroll off the right of that row.
+var PresetNames = []string{
+	"Default",
+	"Game",
+	"Music",
+	"Esports 1",
+	"Esports 2",
+	"Esports 3",
+}
+
+var LEDModes = []string{
+	"Connection status",
+	"Battery status",
+	"Battery warning only",
+}
 
 // SetDongleLED sets the indicator light mode, 0 to 2.
 func SetDongleLED(mode byte) *Message { return New(SetDongleLEDStatus, 0x00, mode) }
