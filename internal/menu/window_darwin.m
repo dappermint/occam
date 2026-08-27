@@ -274,8 +274,9 @@ static NSView *occam_group_grid(NSString *title, NSArray<NSArray<NSView *> *> *r
 		return card;
 	}
 
-	NSTextField *header = [NSTextField labelWithString:[title uppercaseString]];
-	header.font = [NSFont systemFontOfSize:11 weight:NSFontWeightSemibold];
+	NSTextField *header = [NSTextField labelWithString:title];
+	header.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize
+	                                weight:NSFontWeightSemibold];
 	header.textColor = [NSColor secondaryLabelColor];
 
 	NSStackView *stack = [NSStackView stackViewWithViews:@[header, card]];
@@ -321,7 +322,7 @@ static NSView *occam_page(NSArray<NSView *> *groups) {
 static NSView *occam_headset_tab(const char **bandLabels, int minDB, int maxDB) {
 	gSlotPicker = occam_popup(@selector(slotPicked:));
 	NSView *preset = occam_group(@"Preset",
-		@[@[occam_row_label(@"Slot"), gSlotPicker, occam_spacer()]]);
+		@[@[occam_row_label(@""), gSlotPicker, occam_spacer()]]);
 
 	NSMutableArray *bands = [NSMutableArray array];
 	for (int i = 0; i < OCCAM_BANDS; i++) {
@@ -374,10 +375,10 @@ static NSView *occam_spatial_tab(void) {
 	gMixStatus.font = [NSFont systemFontOfSize:11];
 	gMixStatus.textColor = [NSColor secondaryLabelColor];
 
-	NSView *renderer = occam_group(@"Renderer", @[
-		@[occam_row_label(@"Spatial"), gMixOn, occam_spacer()],
+	NSView *renderer = occam_group(@"Binaural rendering", @[
+		@[occam_row_label(@""), gMixOn, occam_spacer()],
 		@[occam_row_label(@"Layout"), gMixLayout, occam_spacer()],
-		@[occam_row_label(@"Status"), gMixStatus, occam_spacer()],
+		@[occam_row_label(@""), gMixStatus, occam_spacer()],
 	]);
 	return occam_page(@[renderer]);
 }

@@ -241,7 +241,7 @@ func (e *editor) setSidetone(value int) {
 }
 
 // write pushes one setting and reports the outcome in the status line. These
-// are all single frames, so unlike the equalizer they need no debouncing
+// are all single frames, so unlike the equaliser they need no debouncing
 // beyond what the retry loop already does.
 func (e *editor) write(what string, m *proto.Message) {
 	dev, err := hid.Open(hid.Razer, hid.BlackSharkV3Pro...)
@@ -341,7 +341,7 @@ func (e *editor) setLowLatency(on bool) {
 	e.write("ultra-low latency", proto.SetHyperSpeed(on))
 }
 
-// readExtras pulls everything below the equalizer. A setting the device does
+// readExtras pulls everything below the equaliser. A setting the device does
 // not answer for keeps its zero value rather than failing the whole read.
 func readExtras(dev *hid.Device) menu.Extras {
 	var e menu.Extras

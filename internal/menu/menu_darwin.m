@@ -38,11 +38,45 @@ static OccamMenuTarget *gTarget = nil;
 
 @end
 
+// Without a main menu no window responds to the shortcuts every macOS window
+// is expected to honour: command-W to close, command-Q to quit, and the edit
+// commands a text field needs. An accessory app never shows this menu, but the
+// key equivalents route through it all the same.
+static void occam_install_main_menu(void) {
+	NSMenu *bar = [[NSMenu alloc] init];
+
+	NSMenuItem *appItem = [[NSMenuItem alloc] init];
+	NSMenu *app = [[NSMenu alloc] init];
+	[app addItemWithTitle:@"Quit occam" action:@selector(terminate:) keyEquivalent:@"q"];
+	appItem.submenu = app;
+	[bar addItem:appItem];
+
+	NSMenuItem *editItem = [[NSMenuItem alloc] init];
+	NSMenu *edit = [[NSMenu alloc] initWithTitle:@"Edit"];
+	[edit addItemWithTitle:@"Cut" action:@selector(cut:) keyEquivalent:@"x"];
+	[edit addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
+	[edit addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];
+	[edit addItemWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"];
+	editItem.submenu = edit;
+	[bar addItem:editItem];
+
+	NSMenuItem *windowItem = [[NSMenuItem alloc] init];
+	NSMenu *window = [[NSMenu alloc] initWithTitle:@"Window"];
+	[window addItemWithTitle:@"Close" action:@selector(performClose:) keyEquivalent:@"w"];
+	[window addItemWithTitle:@"Minimise" action:@selector(performMiniaturize:) keyEquivalent:@"m"];
+	windowItem.submenu = window;
+	[bar addItem:windowItem];
+
+	NSApp.mainMenu = bar;
+	NSApp.windowsMenu = window;
+}
+
 void occam_menu_start(const char *title) {
 	@autoreleasepool {
 		[NSApplication sharedApplication];
 		// Accessory: out of the Dock without needing an .app bundle.
 		[NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+		occam_install_main_menu();
 
 		gTarget = [[OccamMenuTarget alloc] init];
 		gMenu = [[NSMenu alloc] init];

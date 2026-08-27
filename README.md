@@ -66,7 +66,7 @@ switching; editing happens in a window.
 
 ```
 Battery 87%
-── Equalizer ──────
+── Equaliser ──────
    EQ 1
  ✓ EQ 4
    EQ 7

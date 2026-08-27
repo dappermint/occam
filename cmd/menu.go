@@ -271,7 +271,7 @@ func items(st *state, names map[int]string) []menu.Item {
 
 	out := []menu.Item{
 		{Title: powerLine(s), Tag: tagInert, Disabled: true},
-		menu.Section("Equalizer"),
+		menu.Section("Equaliser"),
 	}
 	for i, sl := range s.slots {
 		out = append(out, menu.Item{
