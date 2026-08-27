@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -23,8 +22,8 @@ const agentLabel = "com.dappermint.occam"
 // relaunch every eleven seconds. Draining it means becoming a long-lived XPC
 // daemon, at which point run-once has bought nothing.
 //
-// So: one long-lived process polling the bus. hid.List costs microseconds and
-// the default interval is five seconds.
+// So: one long-lived process that blocks on an in-process IOKit attach
+// notification. It is asleep until the kernel posts an arrival.
 const agentPlist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -35,8 +34,6 @@ const agentPlist = `<?xml version="1.0" encoding="UTF-8"?>
 	<array>
 		<string>%s</string>
 		<string>watch</string>
-		<string>--interval</string>
-		<string>%s</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
@@ -75,7 +72,6 @@ func newAgent() *cobra.Command {
 func newAgentInstall() *cobra.Command {
 	var binary string
 	var print bool
-	var interval time.Duration
 
 	c := &cobra.Command{
 		Use:   "install",
@@ -110,7 +106,7 @@ func newAgentInstall() *cobra.Command {
 			}
 
 			body := fmt.Sprintf(agentPlist,
-				agentLabel, binary, interval,
+				agentLabel, binary,
 				filepath.Join(logDir, "watch.log"),
 				filepath.Join(logDir, "watch.err"))
 
@@ -142,7 +138,6 @@ func newAgentInstall() *cobra.Command {
 	}
 	c.Flags().StringVar(&binary, "binary", "", "path to the occam binary, defaults to this one")
 	c.Flags().BoolVar(&print, "print", false, "print the plist instead of installing it")
-	c.Flags().DurationVar(&interval, "interval", 5*time.Second, "how often the agent checks the bus")
 	return c
 }
 

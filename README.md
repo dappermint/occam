@@ -63,12 +63,13 @@ occam apply                   # write it back
 occam agent install           # launchd fires it on dongle attach
 ```
 
-the agent is one long-lived `occam watch` under launchd `KeepAlive`, checking
-the bus every five seconds and sitting at 0.0% cpu in between.
+the agent is one long-lived `occam watch` under launchd `KeepAlive`, asleep on
+an in-process IOKit attach notification. 0.0% cpu, no polling, and a replug is
+caught however fast it happens.
 
-launchd's IOKit matching looks like the right tool here and is not: a job with
-`IOMatchLaunchStream` has to drain an XPC event stream, and one that does not
-gets relaunched forever. `docs/design.md` phase 5 has the detail.
+launchd's own IOKit matching looks like the right tool here and is not: a job
+with `IOMatchLaunchStream` has to drain an XPC event stream, and one that does
+not gets relaunched forever. `docs/design.md` phase 5 has the detail.
 
 ```toml
 # occam profile
