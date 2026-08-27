@@ -1,0 +1,7 @@
+/occam
+/result
+/result-*
+.direnv/
+
+# vendor logs, they carry the device serial
+/logs/
