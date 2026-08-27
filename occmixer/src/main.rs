@@ -99,6 +99,10 @@ fn run() -> Result<(), String> {
         usage();
         return Ok(());
     }
+    if args.iter().any(|a| a == "--version") {
+        println!("occmixer {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     if args.iter().any(|a| a == "--list") {
         list_outputs();
         return Ok(());
@@ -304,6 +308,7 @@ output so nothing is heard twice.
                   bypass, but the chain's peaks run about 2x above
                   nominal, so the headroom is worth keeping
   --list          print every output device name and exit
+  --version       print the version and exit
   --dry-run       build the tap, report the layout, stop before muting
 
 7.1 is the default because a listening test could not distinguish 7.1.4's

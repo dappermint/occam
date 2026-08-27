@@ -25,7 +25,9 @@ class Occam < Formula
     # output is pinned so the binary name never follows the formula name.
     system "go", "build", *std_go_args(output:  bin/"occam",
                                        ldflags: "-X github.com/dappermint/occam/cmd.version=#{version}")
-    system "go", "build", *std_go_args(output: bin/"occam-spatial"), "./cmd/occam-spatial"
+    system "go", "build", *std_go_args(output:  bin/"occam-spatial",
+                                       ldflags: "-X main.version=#{version}"),
+           "./cmd/occam-spatial"
 
     cd "occmixer" do
       system "cargo", "install", *std_cargo_args
