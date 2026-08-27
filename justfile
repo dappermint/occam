@@ -2,9 +2,10 @@
 default:
     @just --list
 
-# build the binary
+# build both binaries
 build:
     go build -o occam .
+    go build -o occam-spatial ./cmd/occam-spatial
 
 # run without building, args pass through: just run probe --open
 run *args:
@@ -87,7 +88,17 @@ formula:
     brew style --formula dappermint/tap/occam
     brew audit --formula --strict dappermint/tap/occam
 
+# render a wav to binaural, upmixing stereo first
+spatial file layout='7.1.4':
+    go run ./cmd/occam-spatial --upmix {{ layout }} {{ file }}
+
+# regenerate the embedded hrir blob from a downloaded sofa file
+hrir:
+    @echo "get D1_HRIR_SOFA.zip from https://zenodo.org/records/12092466"
+    @echo "then unzip it and run:"
+    @echo "  uv run --with h5py python3 hack/extract-hrir.py <path-to>/D1_48K_24bit_256tap_FIR_SOFA.sofa"
+
 # remove build outputs
 clean:
-    rm -f occam
+    rm -f occam occam-spatial
     rm -rf result

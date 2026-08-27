@@ -195,6 +195,30 @@ $ occam eq --preset "CS2 · NiKo" --slot 4
 which library entry each slot came from as `cloudEqId`, so slots get their real
 names automatically rather than being numbered.
 
+## spatial audio
+
+```
+occam-spatial --upmix 7.1.4 track.wav
+```
+
+a second binary, sharing no code with the hid tool. it renders multichannel
+audio to a binaural stereo pair, and upmixes stereo first when there is
+nothing multichannel to start from.
+
+that upmix is the point. the v3 pro has no spatial hardware at all, both its
+endpoints are stereo and thx is a windows host-side driver, and almost nothing
+on macos emits twelve discrete channels anyway. so a layout gets synthesised
+from what you actually listen to, then rendered through a head.
+
+the head is real: **SADIE II subject D1**, a neumann ku100 dummy head, 48 khz,
+256 taps, CC BY 4.0. only the thirteen directions the layouts use are embedded,
+26 kb, each one an exact measured position rather than an interpolation. see
+`internal/spatial/hrir/LICENSE-SADIE.md`.
+
+`--model synthetic` swaps in a parametric head built from geometry alone, which
+needs no data and works at any sample rate. it sounds worse. it exists so there
+is always something that runs.
+
 ## protocol
 
 four of the setters (anc, mic status, game/chat balance, auto power off) are
