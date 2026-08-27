@@ -24,6 +24,7 @@ void occam_window_set_extras(int ancMode, int ancLevel, int ancLevelActive,
                              int sleepIndex, int lowLatency);
 void occam_window_set_mix(const char **layouts, int count, int selected,
                           int on, int enabled, const char *status);
+void occam_window_set_anc_level_active(int active);
 void occam_window_set_status(const char *text);
 */
 import "C"
@@ -181,6 +182,12 @@ func SetMix(m Mix) {
 	defer C.free(unsafe.Pointer(status))
 	C.occam_window_set_mix(c, C.int(len(m.Layouts)), C.int(m.Selected),
 		cbool(m.On), cbool(m.Enabled), status)
+}
+
+// SetANCLevelActive greys the level out on its own, for when the mode changes
+// without a full reload.
+func SetANCLevelActive(on bool) {
+	C.occam_window_set_anc_level_active(cbool(on))
 }
 
 // SetMicPresets fills the mic EQ preset picker.

@@ -31,10 +31,22 @@ void occam_main_async(void) {
 #define OCCAM_VALUE_WIDTH  34.0
 #define OCCAM_SLIDER_WIDTH 260.0
 
-@interface OccamWindowTarget : NSObject <NSWindowDelegate>
+@interface OccamWindowTarget : NSObject <NSWindowDelegate, NSTabViewDelegate>
+@end
+
+static void occam_window_fit(NSTabViewItem *item);
+
+// NSScrollView puts a document view shorter than the clip view at the bottom,
+// which left the pages hanging off the wrong edge.
+@interface OccamFlippedView : NSView
+@end
+
+@implementation OccamFlippedView
+- (BOOL)isFlipped { return YES; }
 @end
 
 static NSWindow          *gWindow = nil;
+static NSTabView         *gTabs = nil;
 static OccamWindowTarget *gWinTarget = nil;
 
 static NSPopUpButton *gSlotPicker = nil;
@@ -42,6 +54,7 @@ static NSSlider      *gBand[OCCAM_BANDS];
 static NSTextField   *gBandValue[OCCAM_BANDS];
 static NSSegmentedControl *gANCMode = nil;
 static NSSlider      *gANCLevel = nil;
+static NSGridRow     *gANCLevelRow = nil;
 static NSTextField   *gANCValue = nil;
 static NSSlider      *gBalance = nil;
 static NSTextField   *gBalanceValue = nil;
@@ -81,6 +94,19 @@ static NSTextField *occam_row_label(NSString *text) {
 
 static NSTextField *occam_value(NSString *text) {
 	return occam_label(text, OCCAM_VALUE_WIDTH, NSTextAlignmentLeft);
+}
+
+// Returns nil for a name this system does not ship, which NSTabViewItem takes
+// as no image rather than a blank one.
+static NSImage *occam_symbol(NSString *name) {
+	return [NSImage imageWithSystemSymbolName:name accessibilityDescription:nil];
+}
+
+// The device ignores a level write outside noise cancelling, so the row goes
+// away entirely rather than sitting there claiming to do something. Hiding a
+// grid row collapses it, so nothing is left behind.
+static void occam_anc_level_active(int active) {
+	gANCLevelRow.hidden = active ? NO : YES;
 }
 
 static NSView *occam_spacer(void) {
@@ -171,6 +197,13 @@ static NSView *occam_spacer(void) {
 	occamMixLayout((int)[(NSPopUpButton *)sender indexOfSelectedItem]);
 }
 
+// Each pane gets the window sized to it, the way a preferences window does.
+// One shared height would leave Spatial's single card floating in a frame
+// built for ten equaliser bands.
+- (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)item {
+	occam_window_fit(item);
+}
+
 - (void)actionClicked:(id)sender {
 	occamAction((int)[(NSButton *)sender tag]);
 }
@@ -200,50 +233,105 @@ static NSSlider *occam_slider(double lo, double hi, int ticks, SEL action) {
 	return s;
 }
 
-static NSArray<NSView *> *occam_rule(void) {
-	NSBox *box = [[NSBox alloc] initWithFrame:NSZeroRect];
-	box.boxType = NSBoxSeparator;
-	[box.widthAnchor constraintEqualToConstant:OCCAM_SLIDER_WIDTH].active = YES;
-	return @[occam_spacer(), box, occam_spacer()];
-}
-
-// Pinned top-left so rows do not stretch when the tab is taller than them.
-static NSView *occam_grid(NSArray<NSArray<NSView *> *> *rows) {
+static NSGridView *occam_grid(NSArray<NSArray<NSView *> *> *rows) {
 	NSGridView *grid = [NSGridView gridViewWithViews:rows];
-	grid.rowSpacing = 7;
-	grid.columnSpacing = 10;
+	grid.rowSpacing = 10;
+	grid.columnSpacing = 12;
 	grid.rowAlignment = NSGridRowAlignmentFirstBaseline;
 	[grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
 	[grid columnAtIndex:1].xPlacement = NSGridCellPlacementLeading;
 	[grid columnAtIndex:2].xPlacement = NSGridCellPlacementLeading;
 	grid.translatesAutoresizingMaskIntoConstraints = NO;
+	return grid;
+}
 
-	NSView *wrap = [[NSView alloc] initWithFrame:NSZeroRect];
-	[wrap addSubview:grid];
+// One System Settings card: a rounded filled box with an optional header in
+// small caps above it.
+static NSView *occam_group_grid(NSString *title, NSArray<NSArray<NSView *> *> *rows,
+                                NSGridView **out) {
+	NSGridView *grid = occam_grid(rows);
+	if (out) *out = grid;
+
+	NSView *inner = [[NSView alloc] initWithFrame:NSZeroRect];
+	[inner addSubview:grid];
 	[NSLayoutConstraint activateConstraints:@[
-		[grid.topAnchor constraintEqualToAnchor:wrap.topAnchor constant:16],
-		[grid.leadingAnchor constraintEqualToAnchor:wrap.leadingAnchor constant:16],
-		[grid.trailingAnchor constraintLessThanOrEqualToAnchor:wrap.trailingAnchor constant:-16],
-		[grid.bottomAnchor constraintLessThanOrEqualToAnchor:wrap.bottomAnchor constant:-16],
+		[grid.topAnchor constraintEqualToAnchor:inner.topAnchor constant:14],
+		[grid.leadingAnchor constraintEqualToAnchor:inner.leadingAnchor constant:16],
+		[grid.trailingAnchor constraintLessThanOrEqualToAnchor:inner.trailingAnchor constant:-16],
+		[grid.bottomAnchor constraintEqualToAnchor:inner.bottomAnchor constant:-14],
 	]];
-	return wrap;
+
+	NSBox *card = [[NSBox alloc] initWithFrame:NSZeroRect];
+	card.boxType = NSBoxCustom;
+	card.borderWidth = 0;
+	card.cornerRadius = 10;
+	card.fillColor = [NSColor controlBackgroundColor];
+	card.titlePosition = NSNoTitle;
+	card.contentViewMargins = NSZeroSize;
+	card.contentView = inner;
+
+	if (title.length == 0) {
+		return card;
+	}
+
+	NSTextField *header = [NSTextField labelWithString:[title uppercaseString]];
+	header.font = [NSFont systemFontOfSize:11 weight:NSFontWeightSemibold];
+	header.textColor = [NSColor secondaryLabelColor];
+
+	NSStackView *stack = [NSStackView stackViewWithViews:@[header, card]];
+	stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+	stack.alignment = NSLayoutAttributeLeading;
+	stack.spacing = 6;
+	[card.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
+	return stack;
+}
+
+static NSView *occam_group(NSString *title, NSArray<NSArray<NSView *> *> *rows) {
+	return occam_group_grid(title, rows, NULL);
+}
+
+// A tab's worth of cards, scrolling so a long page is reachable in a window
+// sized for the short ones.
+static NSView *occam_page(NSArray<NSView *> *groups) {
+	NSStackView *column = [NSStackView stackViewWithViews:groups];
+	column.orientation = NSUserInterfaceLayoutOrientationVertical;
+	column.alignment = NSLayoutAttributeWidth;
+	column.spacing = 18;
+	column.edgeInsets = NSEdgeInsetsMake(18, 18, 18, 18);
+	column.translatesAutoresizingMaskIntoConstraints = NO;
+
+	OccamFlippedView *doc = [[OccamFlippedView alloc] initWithFrame:NSZeroRect];
+	doc.translatesAutoresizingMaskIntoConstraints = NO;
+	[doc addSubview:column];
+
+	NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+	scroll.hasVerticalScroller = YES;
+	scroll.drawsBackground = NO;
+	scroll.documentView = doc;
+	[NSLayoutConstraint activateConstraints:@[
+		[column.topAnchor constraintEqualToAnchor:doc.topAnchor],
+		[column.leadingAnchor constraintEqualToAnchor:doc.leadingAnchor],
+		[column.trailingAnchor constraintEqualToAnchor:doc.trailingAnchor],
+		[column.bottomAnchor constraintEqualToAnchor:doc.bottomAnchor],
+		[doc.widthAnchor constraintEqualToAnchor:scroll.contentView.widthAnchor],
+	]];
+	return scroll;
 }
 
 static NSView *occam_headset_tab(const char **bandLabels, int minDB, int maxDB) {
-	NSMutableArray *rows = [NSMutableArray array];
-
 	gSlotPicker = occam_popup(@selector(slotPicked:));
-	[rows addObject:@[occam_row_label(@"Preset"), gSlotPicker, occam_spacer()]];
-	[rows addObject:occam_rule()];
+	NSView *preset = occam_group(@"Preset",
+		@[@[occam_row_label(@"Slot"), gSlotPicker, occam_spacer()]]);
 
+	NSMutableArray *bands = [NSMutableArray array];
 	for (int i = 0; i < OCCAM_BANDS; i++) {
 		gBand[i] = occam_slider(minDB, maxDB, (maxDB - minDB) + 1, @selector(bandMoved:));
 		gBand[i].tag = i;
 		gBandValue[i] = occam_value(@"+0");
-		[rows addObject:@[occam_row_label([NSString stringWithUTF8String:bandLabels[i]]),
-		                  gBand[i], gBandValue[i]]];
+		[bands addObject:@[occam_row_label([NSString stringWithUTF8String:bandLabels[i]]),
+		                   gBand[i], gBandValue[i]]];
 	}
-	[rows addObject:occam_rule()];
+	NSView *eq = occam_group(@"Equaliser", bands);
 
 	// Segmented rather than a popup: this is the control Apple uses for
 	// AirPods noise control, and all three modes stay visible.
@@ -252,73 +340,100 @@ static NSView *occam_headset_tab(const char **bandLabels, int minDB, int maxDB) 
 	gANCMode.trackingMode = NSSegmentSwitchTrackingSelectOne;
 	gANCMode.target = gWinTarget;
 	gANCMode.action = @selector(ancPicked:);
-	[rows addObject:@[occam_row_label(@"Noise"), gANCMode, occam_spacer()]];
 
 	gANCLevel = occam_slider(1, 4, 4, @selector(ancLevelMoved:));
 	gANCValue = occam_value(@"1");
-	[rows addObject:@[occam_row_label(@"Level"), gANCLevel, gANCValue]];
-
 	gBalance = occam_slider(0, 20, 21, @selector(balanceMoved:));
 	gBalanceValue = occam_value(@"10");
-	[rows addObject:@[occam_row_label(@"Game/Chat"), gBalance, gBalanceValue]];
-	[rows addObject:occam_rule()];
+	NSGridView *soundGrid = nil;
+	NSView *sound = occam_group_grid(@"Sound", @[
+		@[occam_row_label(@"Noise"), gANCMode, occam_spacer()],
+		@[occam_row_label(@"Level"), gANCLevel, gANCValue],
+		@[occam_row_label(@"Game/Chat"), gBalance, gBalanceValue],
+	], &soundGrid);
+	gANCLevelRow = [soundGrid rowAtIndex:1];
 
 	gDongleLED = occam_popup(@selector(ledPicked:));
-	[rows addObject:@[occam_row_label(@"Light"), gDongleLED, occam_spacer()]];
-
 	gPowerOff = occam_popup(@selector(powerOffPicked:));
-	[rows addObject:@[occam_row_label(@"Sleep"), gPowerOff, occam_spacer()]];
-
 	gLowLatency = [NSButton checkboxWithTitle:@"Ultra-low latency"
 	                                   target:gWinTarget action:@selector(lowLatencyToggled:)];
-	[rows addObject:@[occam_row_label(@"Latency"), gLowLatency, occam_spacer()]];
+	NSView *device = occam_group(@"Device", @[
+		@[occam_row_label(@"Light"), gDongleLED, occam_spacer()],
+		@[occam_row_label(@"Sleep"), gPowerOff, occam_spacer()],
+		@[occam_row_label(@"Latency"), gLowLatency, occam_spacer()],
+	]);
 
-	return occam_grid(rows);
+	return occam_page(@[preset, eq, sound, device]);
 }
 
 static NSView *occam_spatial_tab(void) {
-	NSMutableArray *rows = [NSMutableArray array];
-
 	gMixOn = [NSButton checkboxWithTitle:@"Render system audio to binaural"
 	                              target:gWinTarget action:@selector(mixToggled:)];
-	[rows addObject:@[occam_row_label(@"Spatial"), gMixOn, occam_spacer()]];
-
 	gMixLayout = occam_popup(@selector(mixLayoutPicked:));
-	[rows addObject:@[occam_row_label(@"Layout"), gMixLayout, occam_spacer()]];
-	[rows addObject:occam_rule()];
-
 	gMixStatus = [NSTextField labelWithString:@""];
 	gMixStatus.font = [NSFont systemFontOfSize:11];
 	gMixStatus.textColor = [NSColor secondaryLabelColor];
-	[rows addObject:@[occam_row_label(@""), gMixStatus, occam_spacer()]];
 
-	return occam_grid(rows);
+	NSView *renderer = occam_group(@"Renderer", @[
+		@[occam_row_label(@"Spatial"), gMixOn, occam_spacer()],
+		@[occam_row_label(@"Layout"), gMixLayout, occam_spacer()],
+		@[occam_row_label(@"Status"), gMixStatus, occam_spacer()],
+	]);
+	return occam_page(@[renderer]);
 }
 
 static NSView *occam_mic_tab(const char **bandLabels, int minDB, int maxDB) {
-	NSMutableArray *rows = [NSMutableArray array];
-
 	gMicMute = [NSButton checkboxWithTitle:@"Mute microphone"
 	                                target:gWinTarget action:@selector(micToggled:)];
-	[rows addObject:@[occam_row_label(@"Microphone"), gMicMute, occam_spacer()]];
-
 	gSidetone = occam_slider(0, 15, 16, @selector(sidetoneMoved:));
 	gSidetoneValue = occam_value(@"0");
-	[rows addObject:@[occam_row_label(@"Monitoring"), gSidetone, gSidetoneValue]];
-	[rows addObject:occam_rule()];
+	NSView *input = occam_group(@"Input", @[
+		@[occam_row_label(@"Microphone"), gMicMute, occam_spacer()],
+		@[occam_row_label(@"Monitoring"), gSidetone, gSidetoneValue],
+	]);
 
 	gMicPreset = occam_popup(@selector(micPresetPicked:));
-	[rows addObject:@[occam_row_label(@"Mic EQ"), gMicPreset, occam_spacer()]];
-
+	NSMutableArray *bands = [NSMutableArray array];
+	[bands addObject:@[occam_row_label(@"Preset"), gMicPreset, occam_spacer()]];
 	for (int i = 0; i < OCCAM_BANDS; i++) {
 		gMicBand[i] = occam_slider(minDB, maxDB, (maxDB - minDB) + 1, @selector(micBandMoved:));
 		gMicBand[i].tag = i;
 		gMicBandValue[i] = occam_value(@"+0");
-		[rows addObject:@[occam_row_label([NSString stringWithUTF8String:bandLabels[i]]),
-		                  gMicBand[i], gMicBandValue[i]]];
+		[bands addObject:@[occam_row_label([NSString stringWithUTF8String:bandLabels[i]]),
+		                   gMicBand[i], gMicBandValue[i]]];
+	}
+	NSView *eq = occam_group(@"Equaliser", bands);
+
+	return occam_page(@[input, eq]);
+}
+
+static CGFloat gChromeHeight = 0;
+
+static void occam_window_fit(NSTabViewItem *item) {
+	if (!gWindow || !gTabs || !item.view) return;
+
+	NSScrollView *scroll = (NSScrollView *)item.view;
+	if (![scroll isKindOfClass:[NSScrollView class]]) return;
+
+	CGFloat page = scroll.documentView.fittingSize.height;
+	if (page <= 0) return;
+
+	// Measured once, while the window still holds its designed size: after a
+	// resize the tab view's own frame has moved and the arithmetic drifts.
+	if (gChromeHeight <= 0) {
+		gChromeHeight = gWindow.contentView.frame.size.height -
+		                gTabs.contentRect.size.height;
 	}
 
-	return occam_grid(rows);
+	CGFloat content = MIN(MAX(page + gChromeHeight, 300.0), 780.0);
+	NSRect frame = gWindow.frame;
+	CGFloat want = [gWindow frameRectForContentRect:
+		NSMakeRect(0, 0, frame.size.width, content)].size.height;
+	if (fabs(want - frame.size.height) < 1.0) return;
+
+	frame.origin.y -= want - frame.size.height;
+	frame.size.height = want;
+	[gWindow setFrame:frame display:YES animate:NO];
 }
 
 void occam_window_build(const char **bandLabels, int minDB, int maxDB) {
@@ -327,14 +442,23 @@ void occam_window_build(const char **bandLabels, int minDB, int maxDB) {
 		gWinTarget = [[OccamWindowTarget alloc] init];
 
 		NSTabView *tabs = [[NSTabView alloc] initWithFrame:NSZeroRect];
+		tabs.tabPosition = NSTabPositionTop;
+		tabs.tabViewBorderType = NSTabViewBorderTypeNone;
+		tabs.drawsBackground = NO;
+		tabs.delegate = gWinTarget;
+		gTabs = tabs;
+
 		NSTabViewItem *headset = [[NSTabViewItem alloc] initWithIdentifier:@"headset"];
 		headset.label = @"Headset";
+		headset.image = occam_symbol(@"headphones");
 		headset.view = occam_headset_tab(bandLabels, minDB, maxDB);
 		NSTabViewItem *mic = [[NSTabViewItem alloc] initWithIdentifier:@"mic"];
 		mic.label = @"Microphone";
+		mic.image = occam_symbol(@"mic");
 		mic.view = occam_mic_tab(bandLabels, minDB, maxDB);
 		NSTabViewItem *spatial = [[NSTabViewItem alloc] initWithIdentifier:@"spatial"];
 		spatial.label = @"Spatial";
+		spatial.image = occam_symbol(@"waveform");
 		spatial.view = occam_spatial_tab();
 		[tabs addTabViewItem:headset];
 		[tabs addTabViewItem:mic];
@@ -359,22 +483,28 @@ void occam_window_build(const char **bandLabels, int minDB, int maxDB) {
 		buttons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
 		buttons.spacing = 8;
 
+		// The tab view carries no inset of its own: the cards inside each page
+		// already hold the margin, and doubling it looks cramped.
 		NSStackView *root = [NSStackView stackViewWithViews:@[tabs, buttons]];
 		root.orientation = NSUserInterfaceLayoutOrientationVertical;
-		root.spacing = 12;
-		root.edgeInsets = NSEdgeInsetsMake(16, 16, 16, 16);
+		root.spacing = 10;
+		root.edgeInsets = NSEdgeInsetsMake(10, 16, 16, 16);
 		root.alignment = NSLayoutAttributeWidth;
 
 		gWindow = [[NSWindow alloc]
-			initWithContentRect:NSMakeRect(0, 0, 520, 580)
+			initWithContentRect:NSMakeRect(0, 0, 560, 620)
 			          styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-			                    NSWindowStyleMaskMiniaturizable
+			                    NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
 			            backing:NSBackingStoreBuffered
 			              defer:NO];
 		gWindow.title = @"occam";
 		gWindow.delegate = gWinTarget;
 		gWindow.releasedWhenClosed = NO;
 		gWindow.contentView = root;
+		gWindow.titlebarAppearsTransparent = NO;
+		[gWindow setContentMinSize:NSMakeSize(520, 300)];
+		[gWindow layoutIfNeeded];
+		occam_window_fit(gTabs.selectedTabViewItem);
 		[gWindow center];
 	}
 }
@@ -466,11 +596,7 @@ void occam_window_set_extras(int ancMode, int ancLevel, int ancLevelActive,
 		}
 		gANCLevel.doubleValue = ancLevel;
 		gANCValue.stringValue = [NSString stringWithFormat:@"%d", ancLevel];
-		// The device ignores a level write outside noise cancelling, so the
-		// slider would otherwise sit there claiming to do something.
-		gANCLevel.enabled = ancLevelActive ? YES : NO;
-		gANCValue.textColor = ancLevelActive ? [NSColor labelColor]
-		                                     : [NSColor tertiaryLabelColor];
+		occam_anc_level_active(ancLevelActive);
 		gMicMute.state = micMuted ? NSControlStateValueOn : NSControlStateValueOff;
 		gBalance.doubleValue = balance;
 		gBalanceValue.stringValue = [NSString stringWithFormat:@"%d", balance];
@@ -496,6 +622,10 @@ void occam_window_set_mix(const char **layouts, int count, int selected,
 		gMixStatus.stringValue = [NSString stringWithUTF8String:status];
 		gQuiet = NO;
 	}
+}
+
+void occam_window_set_anc_level_active(int active) {
+	@autoreleasepool { occam_anc_level_active(active); }
 }
 
 void occam_window_set_status(const char *text) {

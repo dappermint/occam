@@ -319,6 +319,9 @@ func (e *editor) setANC(row, level int) {
 		return
 	}
 	e.write("noise cancelling", proto.SetANC(v, byte(level)))
+
+	active := proto.ANCLevelApplies(row)
+	menu.RunOnMain(func() { menu.SetANCLevelActive(active) })
 }
 
 func (e *editor) setMic(muted bool) { e.write("microphone", proto.SetMicMuted(muted)) }
