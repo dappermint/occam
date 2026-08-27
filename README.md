@@ -65,21 +65,11 @@ occam menu
 two pieces, split by what you are doing. the menu bar is for glancing and
 switching; editing happens in a window.
 
-```
-Battery 87%
-── Equaliser ──────
-   EQ 1
- ✓ Game
-   Music
-── Noise ──────────
-  [Off] (ANC) [Ambient]
-  Level ────●────── 7
-───────────────────
-Settings…
-Quit occam
-```
+<img src="assets/menu.png" width="275" alt="occam menu">
 
 **Settings…** opens a real AppKit window across three tabs:
+
+<img src="assets/window.png" width="580" alt="occam settings">
 
 **Headset** has a preset picker, ten sliders labelled with razer's own band
 frequencies (31Hz through 16kHz, -6dB to +6dB), noise cancelling with a level
