@@ -8,7 +8,7 @@ mod sys;
 use std::ffi::{c_void, CString};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
-use dsp::{Pipeline, Speaker, SURROUND_71, SURROUND_714};
+use dsp::{soft_clip, Pipeline, Speaker, SURROUND_71, SURROUND_714};
 
 struct Render {
     pipe: Pipeline,
@@ -72,10 +72,11 @@ extern "C" fn render(
         in_peak = in_peak.max(sl.abs()).max(sr.abs());
 
         let (l, r) = state.pipe.frame(sl, sr);
+        let (l, r) = (soft_clip(l), soft_clip(r));
         out_peak = out_peak.max(l.abs()).max(r.abs());
         let at = i * out_stride;
-        out[at] = l.clamp(-1.0, 1.0);
-        out[at + 1] = r.clamp(-1.0, 1.0);
+        out[at] = l;
+        out[at + 1] = r;
         for c in 2..out_stride {
             out[at + c] = 0.0;
         }
@@ -124,84 +125,107 @@ fn run() -> Result<(), String> {
     };
 
     let needle = CString::new(device.clone()).map_err(|_| "device name has a nul byte")?;
-    let out_device = unsafe { sys::occam_find_output_exact(needle.as_ptr()) };
-    if out_device == sys::AUDIO_OBJECT_UNKNOWN {
-        return Err(format!("no output device whose name contains {device:?}"));
-    }
-
-    let rate = unsafe { sys::occam_device_rate(out_device) };
-    if rate <= 0.0 {
-        return Err("could not read the device sample rate".into());
-    }
-
     let set = hrir::Set::load()?;
-    let pipe = Pipeline::new(speakers, &set, rate as f32, 10f32.powf(gain_db / 20.0))?;
 
-    println!("  device   {device}, {} Hz", rate as u32);
+    println!("  device   {device}");
     println!("  layout   {layout_name}, {} speakers", speakers.len());
     println!("  model    SADIE II KU100, {} taps", set.taps);
     println!("  gain     {gain_db:+} dB");
-    describe("device out", out_device, false);
 
-    // Leaked: freeing this while CoreAudio might still call back would be a
-    // use-after-free on the render thread.
-    let state = Box::leak(Box::new(Render {
-        pipe,
-        saw_in: AtomicU32::new(0),
-        saw_out: AtomicU32::new(0),
-        cycles: AtomicU32::new(0),
-        in_peak: AtomicU32::new(0),
-        out_peak: AtomicU32::new(0),
-    }));
-    let ctx = state as *mut Render as *mut c_void;
+    install_signal_handlers();
 
-    let status = unsafe { sys::occam_live_start(out_device, frames, render, ctx) };
-    if status != 0 {
-        return Err(format!(
-            "starting the tap failed: {status} ({})",
-            sys::status_name(status)
-        ));
-    }
+    // Waits for the headset rather than exiting without it, so the agent can
+    // stay loaded across a dongle being unplugged. Exiting would either leave
+    // launchd respawning in a tight loop or stop the service entirely.
+    let mut announced_wait = false;
+    while !stopping() {
+        let out_device = unsafe { sys::occam_find_output_exact(needle.as_ptr()) };
+        if out_device == sys::AUDIO_OBJECT_UNKNOWN {
+            if !announced_wait {
+                println!("  waiting for {device}");
+                announced_wait = true;
+            }
+            sleep_ms(2000);
+            continue;
+        }
+        announced_wait = false;
 
-    let agg = unsafe { sys::occam_aggregate_id() };
-    describe("agg in ", agg, true);
-    describe("agg out", agg, false);
-    if dry {
+        let rate = unsafe { sys::occam_device_rate(out_device) };
+        if rate <= 0.0 {
+            sleep_ms(2000);
+            continue;
+        }
+
+        let pipe = match Pipeline::new(speakers, &set, rate as f32, 10f32.powf(gain_db / 20.0)) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("occam-live: {e}");
+                sleep_ms(5000);
+                continue;
+            }
+        };
+
+        println!(
+            "  norm     {:.2}x measured, peaks {:.2}x after it",
+            pipe.norm(),
+            pipe.peak()
+        );
+        let state = Box::leak(Box::new(Render {
+            pipe,
+            saw_in: AtomicU32::new(0),
+            saw_out: AtomicU32::new(0),
+            cycles: AtomicU32::new(0),
+            in_peak: AtomicU32::new(0),
+            out_peak: AtomicU32::new(0),
+        }));
+        let ctx = state as *mut Render as *mut c_void;
+
+        let status = unsafe { sys::occam_live_start(out_device, frames, render, ctx) };
+        if status != 0 {
+            eprintln!(
+                "occam-live: starting the tap failed: {status} ({})",
+                sys::status_name(status)
+            );
+            sleep_ms(5000);
+            continue;
+        }
+
+        let agg = unsafe { sys::occam_aggregate_id() };
+        if dry {
+            describe("agg in ", agg, true);
+            describe("agg out", agg, false);
+        }
+        let actual = unsafe { sys::occam_buffer_frames(agg) };
+        println!(
+            "  running  {actual} frames, {:.1} ms per cycle, {} Hz",
+            actual as f64 / rate * 1000.0,
+            rate as u32
+        );
+
+        if dry {
+            unsafe { sys::occam_live_stop() };
+            println!("  dry run, stopped before any audio was muted");
+            return Ok(());
+        }
+
+        // Poll for the device disappearing. The tap mutes system output, so
+        // sitting on a dead aggregate would leave the machine silent.
+        while !stopping() {
+            sleep_ms(1000);
+            let still = unsafe { sys::occam_find_output_exact(needle.as_ptr()) };
+            if still != out_device {
+                println!("  {device} went away, releasing the tap");
+                break;
+            }
+        }
+
         unsafe { sys::occam_live_stop() };
-        println!("\n  dry run, stopped before any audio was muted");
-        return Ok(());
+        let cy = state.cycles.load(Ordering::Relaxed);
+        let ip = state.in_peak.load(Ordering::Relaxed) as f64 / 1_000_000.0;
+        let op = state.out_peak.load(Ordering::Relaxed) as f64 / 1_000_000.0;
+        println!("  cycles   {cy}, peaks in {ip:.4} out {op:.4}");
     }
 
-    let actual = unsafe { sys::occam_buffer_frames(agg) };
-    let ms = actual as f64 / rate * 1000.0;
-    println!("  buffer   {actual} frames, {ms:.1} ms per cycle");
-    println!("\n  running. system audio is muted at the tap and re-rendered here.");
-    println!("  ctrl-c to stop.\n");
-
-    // The tap mutes system output, so failing to stop cleanly leaves the
-    // machine silent.
-    wait_for_interrupt();
-
-    unsafe { sys::occam_live_stop() };
-    let (si, so, cy) = (
-        state.saw_in.load(Ordering::Relaxed),
-        state.saw_out.load(Ordering::Relaxed),
-        state.cycles.load(Ordering::Relaxed),
-    );
-    let ip = state.in_peak.load(Ordering::Relaxed) as f64 / 1_000_000.0;
-    let op = state.out_peak.load(Ordering::Relaxed) as f64 / 1_000_000.0;
-    println!("  cycles   {cy}, tap gave {si} ch, device took {so} ch");
-    println!("  peaks    in {ip:.4}, out {op:.4}");
-    if ip == 0.0 && cy > 0 {
-        eprintln!("occam-live: the tap captured pure silence, so it is muted at capture");
-    } else if op == 0.0 && ip > 0.0 {
-        eprintln!("occam-live: audio came in but the render produced nothing");
-    }
-    if cy == 0 {
-        eprintln!("occam-live: the render callback never ran");
-    } else if si < 2 {
-        eprintln!("occam-live: the tap only ever delivered {si} channel(s)");
-    }
     println!("stopped, audio restored");
     Ok(())
 }
@@ -230,18 +254,31 @@ fn arg(args: &[String], name: &str) -> Option<String> {
     args.get(at + 1).cloned()
 }
 
-fn wait_for_interrupt() {
-    static STOP: AtomicBool = AtomicBool::new(false);
+static STOP: AtomicBool = AtomicBool::new(false);
 
-    extern "C" fn on_signal(_: i32) {
-        STOP.store(true, Ordering::SeqCst);
-    }
+extern "C" fn on_signal(_: i32) {
+    STOP.store(true, Ordering::SeqCst);
+}
+
+fn install_signal_handlers() {
     unsafe {
         libc_signal(2, on_signal as *const () as usize); // SIGINT
         libc_signal(15, on_signal as *const () as usize); // SIGTERM
     }
-    while !STOP.load(Ordering::SeqCst) {
-        std::thread::sleep(std::time::Duration::from_millis(100));
+}
+
+fn stopping() -> bool {
+    STOP.load(Ordering::SeqCst)
+}
+
+// Sleeps in short steps so a signal is noticed promptly; the tap mutes system
+// output, so a slow shutdown is a second of silence.
+fn sleep_ms(total: u64) {
+    let mut left = total;
+    while left > 0 && !stopping() {
+        let step = left.min(100);
+        std::thread::sleep(std::time::Duration::from_millis(step));
+        left -= step;
     }
 }
 
@@ -263,7 +300,9 @@ output so nothing is heard twice.
   --device NAME   substring of the output device name, default BlackShark
   --layout NAME   7.1 (default) or 7.1.4
   --frames N      buffer size per cycle, default 256
-  --gain DB       output gain, default -3
+  --gain DB       output trim, default -3. 0 is level-matched to
+                  bypass, but the chain's peaks run about 2x above
+                  nominal, so the headroom is worth keeping
   --list          print every output device name and exit
   --dry-run       build the tap, report the layout, stop before muting
 

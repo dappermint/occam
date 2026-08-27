@@ -68,6 +68,11 @@ impl Allpass {
         Self { buf: vec![0.0; n], at: 0, gain: 0.6 }
     }
 
+    fn reset(&mut self) {
+        self.buf.fill(0.0);
+        self.at = 0;
+    }
+
     #[inline]
     fn process(&mut self, x: f32) -> f32 {
         let d = self.buf[self.at];
@@ -95,6 +100,11 @@ impl Fir {
             hist: vec![0.0; r.left.len()],
             at: 0,
         }
+    }
+
+    fn reset(&mut self) {
+        self.hist.fill(0.0);
+        self.at = 0;
     }
 
     #[inline]
@@ -127,6 +137,7 @@ pub struct Pipeline {
     lfe1: OnePole,
     lfe2: OnePole,
     norm: f32,
+    peak: f32,
     lfe_gain: f32,
     gain: f32,
 }
@@ -168,17 +179,79 @@ impl Pipeline {
             });
         }
 
-        let placed = speakers.iter().filter(|s| !s.lfe).count().max(1);
-        Ok(Self {
+        let mut pipe = Self {
             speakers: speakers.to_vec(),
             firs,
             decor,
             lfe1: OnePole::new(LFE_CUTOFF, rate),
             lfe2: OnePole::new(LFE_CUTOFF, rate),
-            norm: 1.0 / (placed as f32).sqrt(),
+            norm: 1.0,
+            peak: 1.0,
             lfe_gain: 0.7,
             gain,
-        })
+        };
+        let (norm, peak) = pipe.measure();
+        pipe.norm = norm;
+        pipe.peak = peak;
+        Ok(pipe)
+    }
+
+    // 1/sqrt(speaker count) is 8 dB too quiet: the front pair carries the whole
+    // signal while the surrounds carry only the side component, which is near
+    // zero for correlated material. Correlated noise for the same reason.
+    fn measure(&mut self) -> (f32, f32) {
+        let user = std::mem::replace(&mut self.gain, 1.0);
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        let mut sum_in = 0.0f64;
+        let mut sum_out = 0.0f64;
+        let mut peak_in = 0.0f32;
+        let mut peak_out = 0.0f32;
+
+        const WARMUP: usize = 4096;
+        const MEASURE: usize = 16384;
+
+        for i in 0..(WARMUP + MEASURE) {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let x = ((seed >> 40) as i32 - 8388608) as f32 / 8388608.0 * 0.5;
+
+            let (l, r) = self.frame(x, x);
+            if i >= WARMUP {
+                sum_in += (x * x) as f64 * 2.0;
+                sum_out += (l * l + r * r) as f64;
+                peak_in = peak_in.max(x.abs());
+                peak_out = peak_out.max(l.abs()).max(r.abs());
+            }
+        }
+
+        self.gain = user;
+
+        // The measurement's tail would otherwise leak into real audio.
+        for f in self.firs.iter_mut().flatten() {
+            f.reset();
+        }
+        for d in self.decor.iter_mut().flatten() {
+            d.reset();
+        }
+        self.lfe1.prev = 0.0;
+        self.lfe2.prev = 0.0;
+
+        if sum_out <= 0.0 || peak_in <= 0.0 {
+            return (1.0, 1.0);
+        }
+        // A wild number here means the measurement went wrong, and being quiet
+        // beats the alternative.
+        let norm = ((sum_in / sum_out).sqrt() as f32).clamp(0.25, 4.0);
+        (norm, peak_out / peak_in * norm)
+    }
+
+    pub fn norm(&self) -> f32 {
+        self.norm
+    }
+
+    // Peak amplification after normalising, measured on noise. Above 1.0 means
+    // a track mastered to full scale will reach soft_clip's knee.
+    pub fn peak(&self) -> f32 {
+        self.peak
     }
 
     #[inline]
@@ -234,4 +307,56 @@ fn signed(v: f32, azimuth: f32) -> f32 {
 
 fn is_frontal(s: &Speaker) -> bool {
     s.azimuth.abs() <= 90.0 && s.elevation == 0.0
+}
+
+// Loudness parity leaves peaks above full scale, because summing seven
+// decorrelated HRIR copies raises crest factor. Rounding those off beats the
+// hard clamp that would otherwise catch them. Continuous in value and slope at
+// the knee, asymptotic to 1.0, so it never needs a clamp behind it.
+#[inline]
+pub fn soft_clip(x: f32) -> f32 {
+    const KNEE: f32 = 0.7;
+    const ROOM: f32 = 1.0 - KNEE;
+
+    let mag = x.abs();
+    if mag <= KNEE {
+        return x;
+    }
+    let over = mag - KNEE;
+    (KNEE + ROOM * over / (over + ROOM)) * x.signum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn soft_clip_is_transparent_below_the_knee() {
+        for i in 0..=70 {
+            let x = i as f32 / 100.0;
+            assert_eq!(soft_clip(x), x);
+            assert_eq!(soft_clip(-x), -x);
+        }
+    }
+
+    #[test]
+    fn soft_clip_never_reaches_full_scale() {
+        for x in [0.71, 1.0, 1.5, 2.12, 10.0, 1e6] {
+            assert!(soft_clip(x) < 1.0, "{x} mapped to {}", soft_clip(x));
+            assert!(soft_clip(-x) > -1.0);
+        }
+    }
+
+    #[test]
+    fn soft_clip_is_monotonic_and_continuous() {
+        let mut prev = soft_clip(0.0);
+        let mut x = 0.0f32;
+        while x < 4.0 {
+            x += 0.001;
+            let y = soft_clip(x);
+            assert!(y >= prev, "not monotonic at {x}");
+            assert!(y - prev < 0.002, "jump at {x}: {prev} -> {y}");
+            prev = y;
+        }
+    }
 }
