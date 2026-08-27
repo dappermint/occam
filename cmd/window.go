@@ -7,6 +7,7 @@ import (
 
 	"github.com/dappermint/occam/internal/hid"
 	"github.com/dappermint/occam/internal/menu"
+	"github.com/dappermint/occam/internal/mixer"
 	"github.com/dappermint/occam/internal/profile"
 	"github.com/dappermint/occam/internal/proto"
 )
@@ -79,6 +80,7 @@ func (e *editor) load(st *state) {
 		menu.SetANCModes(proto.ANCModes)
 		menu.SetSleepOptions(sleepLabels())
 		menu.SetMicPresets(proto.MicPresetNames(), extras.MicPreset)
+		menu.SetMix(mixState())
 		menu.SetSlots(names, slot)
 		menu.SetBands(bandsOf(eq))
 		menu.SetMicBands(bandsOf(extras.MicBands))
@@ -255,6 +257,59 @@ func (e *editor) write(what string, m *proto.Message) {
 		return
 	}
 	menu.RunOnMain(func() { menu.SetStatus(what + " set") })
+}
+
+// mixState renders the occmixer agent for the spatial tab.
+func mixState() menu.Mix {
+	st := mixer.Read()
+	m := menu.Mix{
+		Layouts:  mixer.Layouts,
+		Selected: mixer.LayoutRow(st.Layout),
+		On:       st.Running,
+		Enabled:  true,
+	}
+	switch {
+	case !st.Installed:
+		m.Enabled = false
+		m.Status = "occmixer is not installed"
+	case st.Running:
+		m.Status = fmt.Sprintf("rendering, %d frames", st.Frames)
+	default:
+		m.Status = "off, system audio is untouched"
+	}
+	return m
+}
+
+func (e *editor) setMixEnabled(on bool) {
+	st := mixer.Read()
+	var err error
+	if on {
+		err = mixer.Start(st.Layout, st.Frames)
+	} else {
+		err = mixer.Stop()
+	}
+	e.reportMix("spatial", err)
+}
+
+func (e *editor) setMixLayout(row int) {
+	if row < 0 || row >= len(mixer.Layouts) {
+		return
+	}
+	e.reportMix("layout", mixer.SetLayout(mixer.Layouts[row]))
+}
+
+// reportMix refreshes the tab either way, so the checkbox follows launchd
+// rather than whatever the click set it to.
+func (e *editor) reportMix(what string, err error) {
+	msg := what + " set"
+	if err != nil {
+		msg = truncate(what+": "+err.Error(), 40)
+	}
+	m := mixState()
+	menu.RunOnMain(func() {
+		menu.SetMix(m)
+		menu.SetStatus(msg)
+	})
 }
 
 func (e *editor) setANC(mode, level int) {

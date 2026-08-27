@@ -22,6 +22,8 @@ void occam_window_set_sleep_options(const char **names, int count);
 void occam_window_set_extras(int ancMode, int ancLevel, int micMuted,
                              int balance, int ledMode, int sleepIndex,
                              int lowLatency);
+void occam_window_set_mix(const char **layouts, int count, int selected,
+                          int on, int enabled, const char *status);
 void occam_window_set_status(const char *text);
 */
 import "C"
@@ -43,6 +45,8 @@ type WindowHandlers struct {
 	OnBand       func(band, value int)
 	OnMicBand    func(band, value int)
 	OnMicPreset  func(index int)
+	OnMixEnabled func(on bool)
+	OnMixLayout  func(index int)
 	OnSlot       func(slot int)
 	OnSidetone   func(value int)
 	OnANC        func(mode, level int)
@@ -156,6 +160,26 @@ func SetSlots(names []string, selected int) {
 	C.occam_window_set_slots(c, C.int(len(names)), C.int(selected))
 }
 
+// Mix is the spatial tab's state.
+type Mix struct {
+	Layouts  []string
+	Selected int
+	On       bool
+	Enabled  bool
+	Status   string
+}
+
+// SetMix fills the spatial tab. Enabled is false when occmixer is not
+// installed, so the controls grey out rather than failing on every click.
+func SetMix(m Mix) {
+	c, free := cStrings(m.Layouts)
+	defer free()
+	status := C.CString(m.Status)
+	defer C.free(unsafe.Pointer(status))
+	C.occam_window_set_mix(c, C.int(len(m.Layouts)), C.int(m.Selected),
+		cbool(m.On), cbool(m.Enabled), status)
+}
+
 // SetMicPresets fills the mic EQ preset picker.
 func SetMicPresets(names []string, selected int) {
 	c, free := cStrings(names)
@@ -251,6 +275,20 @@ func occamSlotChanged(slot C.int) {
 func occamSidetoneChanged(value C.int) {
 	if h := handlers().OnSidetone; h != nil {
 		go h(int(value))
+	}
+}
+
+//export occamMixEnabled
+func occamMixEnabled(on C.int) {
+	if h := handlers().OnMixEnabled; h != nil {
+		go h(on != 0)
+	}
+}
+
+//export occamMixLayout
+func occamMixLayout(index C.int) {
+	if h := handlers().OnMixLayout; h != nil {
+		go h(int(index))
 	}
 }
 

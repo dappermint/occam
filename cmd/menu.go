@@ -196,6 +196,8 @@ func newMenu() *cobra.Command {
 				OnBand:       ed.setBand,
 				OnMicBand:    ed.setMicBand,
 				OnMicPreset:  ed.setMicPreset,
+				OnMixEnabled: ed.setMixEnabled,
+				OnMixLayout:  ed.setMixLayout,
 				OnSlot:       func(slot int) { ed.selectSlotFromWindow(slot, st) },
 				OnSidetone:   ed.setSidetone,
 				OnANC:        ed.setANC,

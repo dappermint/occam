@@ -7,6 +7,8 @@ extern void occamBandChanged(int band, int value);
 extern void occamMicBandChanged(int band, int value);
 extern void occamSlotChanged(int slot);
 extern void occamMicPresetChanged(int index);
+extern void occamMixEnabled(int on);
+extern void occamMixLayout(int index);
 extern void occamSidetoneChanged(int value);
 extern void occamANCChanged(int mode, int level);
 extern void occamMicChanged(int muted);
@@ -51,6 +53,9 @@ static NSButton      *gMicMute = nil;
 static NSSlider      *gSidetone = nil;
 static NSTextField   *gSidetoneValue = nil;
 static NSPopUpButton *gMicPreset = nil;
+static NSButton      *gMixOn = nil;
+static NSPopUpButton *gMixLayout = nil;
+static NSTextField   *gMixStatus = nil;
 static NSSlider      *gMicBand[OCCAM_BANDS];
 static NSTextField   *gMicBandValue[OCCAM_BANDS];
 
@@ -156,6 +161,16 @@ static NSView *occam_spacer(void) {
 	occamLowLatencyChanged([(NSButton *)sender state] == NSControlStateValueOn ? 1 : 0);
 }
 
+- (void)mixToggled:(id)sender {
+	if (gQuiet) return;
+	occamMixEnabled([(NSButton *)sender state] == NSControlStateValueOn ? 1 : 0);
+}
+
+- (void)mixLayoutPicked:(id)sender {
+	if (gQuiet) return;
+	occamMixLayout((int)[(NSPopUpButton *)sender indexOfSelectedItem]);
+}
+
 - (void)actionClicked:(id)sender {
 	occamAction((int)[(NSButton *)sender tag]);
 }
@@ -255,6 +270,25 @@ static NSView *occam_headset_tab(const char **bandLabels, int minDB, int maxDB) 
 	return occam_grid(rows);
 }
 
+static NSView *occam_spatial_tab(void) {
+	NSMutableArray *rows = [NSMutableArray array];
+
+	gMixOn = [NSButton checkboxWithTitle:@"Render system audio to binaural"
+	                              target:gWinTarget action:@selector(mixToggled:)];
+	[rows addObject:@[occam_row_label(@"Spatial"), gMixOn, occam_spacer()]];
+
+	gMixLayout = occam_popup(@selector(mixLayoutPicked:));
+	[rows addObject:@[occam_row_label(@"Layout"), gMixLayout, occam_spacer()]];
+	[rows addObject:occam_rule()];
+
+	gMixStatus = [NSTextField labelWithString:@""];
+	gMixStatus.font = [NSFont systemFontOfSize:11];
+	gMixStatus.textColor = [NSColor secondaryLabelColor];
+	[rows addObject:@[occam_row_label(@""), gMixStatus, occam_spacer()]];
+
+	return occam_grid(rows);
+}
+
 static NSView *occam_mic_tab(const char **bandLabels, int minDB, int maxDB) {
 	NSMutableArray *rows = [NSMutableArray array];
 
@@ -293,8 +327,12 @@ void occam_window_build(const char **bandLabels, int minDB, int maxDB) {
 		NSTabViewItem *mic = [[NSTabViewItem alloc] initWithIdentifier:@"mic"];
 		mic.label = @"Microphone";
 		mic.view = occam_mic_tab(bandLabels, minDB, maxDB);
+		NSTabViewItem *spatial = [[NSTabViewItem alloc] initWithIdentifier:@"spatial"];
+		spatial.label = @"Spatial";
+		spatial.view = occam_spatial_tab();
 		[tabs addTabViewItem:headset];
 		[tabs addTabViewItem:mic];
+		[tabs addTabViewItem:spatial];
 
 		gStatus = [NSTextField labelWithString:@""];
 		gStatus.font = [NSFont systemFontOfSize:11];
@@ -423,6 +461,19 @@ void occam_window_set_extras(int ancMode, int ancLevel, int micMuted,
 			[gPowerOff selectItemAtIndex:sleepIndex];
 		}
 		gLowLatency.state = lowLatency ? NSControlStateValueOn : NSControlStateValueOff;
+		gQuiet = NO;
+	}
+}
+
+void occam_window_set_mix(const char **layouts, int count, int selected,
+                          int on, int enabled, const char *status) {
+	@autoreleasepool {
+		occam_fill(gMixLayout, layouts, count, selected);
+		gQuiet = YES;
+		gMixOn.state = on ? NSControlStateValueOn : NSControlStateValueOff;
+		gMixOn.enabled = enabled ? YES : NO;
+		gMixLayout.enabled = enabled ? YES : NO;
+		gMixStatus.stringValue = [NSString stringWithUTF8String:status];
 		gQuiet = NO;
 	}
 }
