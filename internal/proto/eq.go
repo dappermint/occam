@@ -192,9 +192,46 @@ func SetANC(mode, level byte) *Message {
 	return New(SetANCStatusAndLevel, 0x00, mode, level)
 }
 
-// MicPresets are the four mic EQ buttons Synapse shows. It gives them icons
-// rather than words, so these labels are ours.
-var MicPresets = []string{"Preset 1", "Preset 2", "Preset 3", "Custom"}
+// MicPresetBase is where the mic EQ preset indices start. They are 0x20
+// through 0x23, not 0 through 3: getMicPresetEQIndex returned 32, 33, 34 and
+// 35 as Synapse's four buttons were clicked in order. Sending a plain 0 would
+// have selected nothing and looked like a dead control.
+const MicPresetBase byte = 0x20
+
+// MicPreset is one of the four mic EQ buttons, with the curve Synapse writes.
+type MicPreset struct {
+	Index byte
+	Name  string
+	Bands EQ
+}
+
+// MicPresets are those four, names read off the tooltips and curves read out
+// of the capture rather than estimated from the sliders.
+var MicPresets = []MicPreset{
+	{MicPresetBase + 0, "Default", EQ{-5, -4, -4, -3, -2, 1, 2, 3, 3, 3}},
+	{MicPresetBase + 1, "Esports", EQ{-6, -5, -5, -4, 0, 1, 1, 1, 1, 1}},
+	{MicPresetBase + 2, "Broadcast", EQ{5, 4, 3, 1, -1, 0, 2, 3, 4, 4}},
+	{MicPresetBase + 3, "Flat", EQ{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+}
+
+// MicPresetNames lists them for a picker.
+func MicPresetNames() []string {
+	out := make([]string, len(MicPresets))
+	for i, p := range MicPresets {
+		out[i] = p.Name
+	}
+	return out
+}
+
+// MicPresetRow maps a device index onto a row in that list, or -1.
+func MicPresetRow(index byte) int {
+	for i, p := range MicPresets {
+		if p.Index == index {
+			return i
+		}
+	}
+	return -1
+}
 
 // MicBands reads the mic curve. Unlike the speaker one it carries no slot
 // byte: the capture shows setMicCustomerEQBand taking exactly ten arguments.
@@ -208,9 +245,18 @@ func SetMicBands(eq EQ) *Message {
 // MicPresetIndex reads which mic EQ preset is selected.
 func MicPresetIndex() *Message { return New(GetMicPresetEQIndex, 0x00) }
 
-// SetMicPresetIndex selects a mic EQ preset.
+// SetMicPresetIndex selects a mic EQ preset by its device index, which starts
+// at MicPresetBase.
 func SetMicPresetIndex(index byte) *Message {
 	return New(SetMicPresetEQIndex, 0x00, index)
+}
+
+// SetMicPresetRow selects by row in MicPresets, doing the base offset for you.
+func SetMicPresetRow(row int) (*Message, bool) {
+	if row < 0 || row >= len(MicPresets) {
+		return nil, false
+	}
+	return SetMicPresetIndex(MicPresets[row].Index), true
 }
 
 // MicStatus reads whether the mic is muted.

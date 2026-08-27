@@ -78,7 +78,7 @@ func (e *editor) load(st *state) {
 		menu.SetLEDModes(proto.LEDModes)
 		menu.SetANCModes(proto.ANCModes)
 		menu.SetSleepOptions(sleepLabels())
-		menu.SetMicPresets(proto.MicPresets, extras.MicPreset)
+		menu.SetMicPresets(proto.MicPresetNames(), extras.MicPreset)
 		menu.SetSlots(names, slot)
 		menu.SetBands(bandsOf(eq))
 		menu.SetMicBands(bandsOf(extras.MicBands))
@@ -139,8 +139,26 @@ func (e *editor) flushMic() {
 	e.write("mic EQ", proto.SetMicBands(eq))
 }
 
-func (e *editor) setMicPreset(index int) {
-	e.write("mic preset", proto.SetMicPresetIndex(byte(index)))
+// setMicPreset takes the popup row; the device index starts at 0x20.
+func (e *editor) setMicPreset(row int) {
+	m, ok := proto.SetMicPresetRow(row)
+	if !ok {
+		return
+	}
+	e.write("mic preset", m)
+
+	// Selecting a preset replaces the curve, so pull the new one back.
+	if dev, err := hid.Open(hid.Razer, hid.BlackSharkV3Pro...); err == nil {
+		if r, err := ask(dev, proto.MicBands()); err == nil && len(r.Args) >= proto.Bands {
+			if eq, err := proto.ParseBands(r.Args[:proto.Bands]); err == nil {
+				e.mu.Lock()
+				e.micEQ = eq
+				e.mu.Unlock()
+				menu.RunOnMain(func() { menu.SetMicBands(bandsOf(eq)) })
+			}
+		}
+		dev.Close()
+	}
 }
 
 // flush writes the current curve to the slot being edited.
@@ -270,7 +288,7 @@ func readExtras(dev *hid.Device) menu.Extras {
 	}
 	if m, err := ask(dev, proto.MicPresetIndex()); err == nil && len(m.Args) >= 1 &&
 		!proto.Unavailable(m.Args) {
-		e.MicPreset = int(m.Args[0])
+		e.MicPreset = proto.MicPresetRow(m.Args[0])
 	}
 	if m, err := ask(dev, proto.MicBands()); err == nil && len(m.Args) >= proto.Bands {
 		if eq, err := proto.ParseBands(m.Args[:proto.Bands]); err == nil {
