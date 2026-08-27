@@ -37,7 +37,7 @@ static NSTextField       *gANCValue = nil;
 static NSButton          *gMicMute = nil;
 static NSSlider          *gBalance = nil;
 static NSTextField       *gBalanceValue = nil;
-static NSButton          *gDongleLED = nil;
+static NSPopUpButton     *gDongleLED = nil;
 static NSSlider          *gPowerOff = nil;
 static NSTextField       *gPowerOffValue = nil;
 static NSTextField       *gStatus = nil;
@@ -103,9 +103,9 @@ static NSTextField *occam_label(NSString *text, CGFloat width, NSTextAlignment a
 	occamBalanceChanged(v);
 }
 
-- (void)ledToggled:(id)sender {
+- (void)ledPicked:(id)sender {
 	if (gQuiet) return;
-	occamLEDChanged([(NSButton *)sender state] == NSControlStateValueOn ? 1 : 0);
+	occamLEDChanged((int)[(NSPopUpButton *)sender indexOfSelectedItem]);
 }
 
 - (void)powerOffMoved:(id)sender {
@@ -200,9 +200,10 @@ void occam_window_build(const char **bandLabels, int minDB, int maxDB) {
 		gBalanceValue = occam_label(@"10", 40, NSTextAlignmentLeft);
 		[rows addObject:occam_row(@"Game/Chat", gBalance, gBalanceValue)];
 
-		gDongleLED = [NSButton checkboxWithTitle:@"Dongle indicator light"
-		                                  target:gWinTarget action:@selector(ledToggled:)];
-		[rows addObject:gDongleLED];
+		gDongleLED = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+		gDongleLED.target = gWinTarget;
+		gDongleLED.action = @selector(ledPicked:);
+		[rows addObject:occam_row(@"Light", gDongleLED, occam_label(@"", 40, NSTextAlignmentLeft))];
 
 		gPowerOff = [NSSlider sliderWithValue:15 minValue:0 maxValue:60
 		                               target:gWinTarget action:@selector(powerOffMoved:)];
@@ -286,8 +287,20 @@ void occam_window_set_sidetone(int value) {
 	}
 }
 
+void occam_window_set_led_modes(const char **names, int count) {
+	@autoreleasepool {
+		if (!gDongleLED) return;
+		gQuiet = YES;
+		[gDongleLED removeAllItems];
+		for (int i = 0; i < count; i++) {
+			[gDongleLED addItemWithTitle:[NSString stringWithUTF8String:names[i]]];
+		}
+		gQuiet = NO;
+	}
+}
+
 void occam_window_set_extras(int ancOn, int ancLevel, int micMuted,
-                             int balance, int ledOn, int powerOff) {
+                             int balance, int ledMode, int powerOff) {
 	@autoreleasepool {
 		gQuiet = YES;
 		gANC.state = ancOn ? NSControlStateValueOn : NSControlStateValueOff;
@@ -296,7 +309,9 @@ void occam_window_set_extras(int ancOn, int ancLevel, int micMuted,
 		gMicMute.state = micMuted ? NSControlStateValueOn : NSControlStateValueOff;
 		gBalance.doubleValue = balance;
 		gBalanceValue.stringValue = [NSString stringWithFormat:@"%d", balance];
-		gDongleLED.state = ledOn ? NSControlStateValueOn : NSControlStateValueOff;
+		if (ledMode >= 0 && ledMode < gDongleLED.numberOfItems) {
+			[gDongleLED selectItemAtIndex:ledMode];
+		}
 		gPowerOff.doubleValue = powerOff;
 		gPowerOffValue.stringValue = powerOff == 0 ? @"never"
 		                           : [NSString stringWithFormat:@"%d min", powerOff];

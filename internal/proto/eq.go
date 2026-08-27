@@ -186,14 +186,13 @@ func SetMicMuted(muted bool) *Message {
 // DongleLED reads the dongle's indicator state.
 func DongleLED() *Message { return New(GetDongleLEDStatus, 0x00) }
 
-// SetDongleLED turns the dongle indicator on or off.
-func SetDongleLED(on bool) *Message {
-	var v byte
-	if on {
-		v = 1
-	}
-	return New(SetDongleLEDStatus, 0x00, v)
-}
+// LEDModes are the three values the indicator light accepts. Synapse's logs
+// carry indicatorLedStatus 0, 1 and 2 but no names for them, so these labels
+// are ours.
+var LEDModes = []string{"Off", "On", "Auto"}
+
+// SetDongleLED sets the indicator light mode, 0 to 2.
+func SetDongleLED(mode byte) *Message { return New(SetDongleLEDStatus, 0x00, mode) }
 
 // AutoPowerOff reads the idle timeout. The device reports minutes.
 func AutoPowerOff() *Message { return New(GetAutoPowerOffStatus, 0x00) }

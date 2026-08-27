@@ -14,8 +14,9 @@ void occam_window_show(void);
 void occam_window_set_slots(const char **names, int count, int selected);
 void occam_window_set_bands(const int *values, int count);
 void occam_window_set_sidetone(int value);
+void occam_window_set_led_modes(const char **names, int count);
 void occam_window_set_extras(int ancOn, int ancLevel, int micMuted,
-                             int balance, int ledOn, int powerOff);
+                             int balance, int ledMode, int powerOff);
 void occam_window_set_status(const char *text);
 */
 import "C"
@@ -40,7 +41,7 @@ type WindowHandlers struct {
 	OnANC      func(on bool, level int)
 	OnMic      func(muted bool)
 	OnBalance  func(value int)
-	OnLED      func(on bool)
+	OnLED      func(mode int)
 	OnPowerOff func(minutes int)
 	OnAction   func(tag int)
 }
@@ -51,15 +52,22 @@ type Extras struct {
 	ANCLevel int
 	MicMuted bool
 	Balance  int
-	LEDOn    bool
+	LEDMode  int
 	PowerOff int
 	Sidetone int
+}
+
+// SetLEDModes fills the indicator light popup. The device takes 0, 1 or 2.
+func SetLEDModes(names []string) {
+	c, free := cStrings(names)
+	defer free()
+	C.occam_window_set_led_modes(c, C.int(len(names)))
 }
 
 // SetExtras fills those controls without firing their callbacks.
 func SetExtras(e Extras) {
 	C.occam_window_set_extras(cbool(e.ANCOn), C.int(e.ANCLevel), cbool(e.MicMuted),
-		C.int(e.Balance), cbool(e.LEDOn), C.int(e.PowerOff))
+		C.int(e.Balance), C.int(e.LEDMode), C.int(e.PowerOff))
 }
 
 func cbool(b bool) C.int {
@@ -210,9 +218,9 @@ func occamBalanceChanged(value C.int) {
 }
 
 //export occamLEDChanged
-func occamLEDChanged(on C.int) {
+func occamLEDChanged(mode C.int) {
 	if h := handlers().OnLED; h != nil {
-		go h(on != 0)
+		go h(int(mode))
 	}
 }
 

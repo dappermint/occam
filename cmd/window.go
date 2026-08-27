@@ -67,6 +67,7 @@ func (e *editor) load(st *state) {
 	}
 
 	menu.RunOnMain(func() {
+		menu.SetLEDModes(proto.LEDModes)
 		menu.SetSlots(names, slot)
 		menu.SetBands(bandsOf(eq))
 		menu.SetExtras(extras)
@@ -185,7 +186,7 @@ func (e *editor) setANC(on bool, level int) {
 
 func (e *editor) setMic(muted bool)   { e.write("microphone", proto.SetMicMuted(muted)) }
 func (e *editor) setBalance(v int)    { e.write("game/chat", proto.SetGameChat(byte(v))) }
-func (e *editor) setLED(on bool)      { e.write("dongle light", proto.SetDongleLED(on)) }
+func (e *editor) setLED(mode int)     { e.write("dongle light", proto.SetDongleLED(byte(mode))) }
 func (e *editor) setPowerOff(min int) { e.write("sleep timer", proto.SetAutoPowerOff(byte(min))) }
 
 // readExtras pulls everything below the equalizer. A setting the device does
@@ -202,7 +203,7 @@ func readExtras(dev *hid.Device) menu.Extras {
 		e.Balance = int(m.Args[0])
 	}
 	if m, err := ask(dev, proto.DongleLED()); err == nil && len(m.Args) >= 1 {
-		e.LEDOn = m.Args[0] != 0
+		e.LEDMode = int(m.Args[0])
 	}
 	if m, err := ask(dev, proto.AutoPowerOff()); err == nil && len(m.Args) >= 1 {
 		e.PowerOff = int(m.Args[0])
