@@ -36,7 +36,18 @@ func plistPath() string {
 	return filepath.Join(home, "Library", "LaunchAgents", Label+".plist")
 }
 
+// binaryPath finds occmixer wherever it was installed. PATH first, since a
+// package manager put it there, then the manual location.
+//
+// launchd gets a resolved absolute path either way: it runs with a minimal
+// environment and would not find the binary on a PATH of its own.
 func binaryPath() string {
+	if p, err := exec.LookPath("occmixer"); err == nil {
+		if abs, err := filepath.Abs(p); err == nil {
+			return abs
+		}
+		return p
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".local", "bin", "occmixer")
 }

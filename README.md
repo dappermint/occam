@@ -158,6 +158,10 @@ brew install dappermint/tap/occam
 brew services start occam      # menu bar app at login
 ```
 
+three binaries: `occam` is the headset control and the menu bar app,
+`occam-spatial` renders a file to binaural, `occmixer` does the same to system
+audio while it plays.
+
 ## build
 
 ```
