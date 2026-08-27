@@ -40,7 +40,7 @@ static OccamWindowTarget *gWinTarget = nil;
 static NSPopUpButton *gSlotPicker = nil;
 static NSSlider      *gBand[OCCAM_BANDS];
 static NSTextField   *gBandValue[OCCAM_BANDS];
-static NSPopUpButton *gANCMode = nil;
+static NSSegmentedControl *gANCMode = nil;
 static NSSlider      *gANCLevel = nil;
 static NSTextField   *gANCValue = nil;
 static NSSlider      *gBalance = nil;
@@ -124,14 +124,14 @@ static NSView *occam_spacer(void) {
 
 - (void)ancPicked:(id)sender {
 	if (gQuiet) return;
-	occamANCChanged((int)[gANCMode indexOfSelectedItem], (int)lround(gANCLevel.doubleValue));
+	occamANCChanged((int)gANCMode.selectedSegment, (int)lround(gANCLevel.doubleValue));
 }
 
 - (void)ancLevelMoved:(id)sender {
 	if (gQuiet) return;
 	int level = (int)lround([(NSSlider *)sender doubleValue]);
 	gANCValue.stringValue = [NSString stringWithFormat:@"%d", level];
-	occamANCChanged((int)[gANCMode indexOfSelectedItem], level);
+	occamANCChanged((int)gANCMode.selectedSegment, level);
 }
 
 - (void)micToggled:(id)sender {
@@ -245,7 +245,13 @@ static NSView *occam_headset_tab(const char **bandLabels, int minDB, int maxDB) 
 	}
 	[rows addObject:occam_rule()];
 
-	gANCMode = occam_popup(@selector(ancPicked:));
+	// Segmented rather than a popup: this is the control Apple uses for
+	// AirPods noise control, and all three modes stay visible.
+	gANCMode = [[NSSegmentedControl alloc] initWithFrame:NSZeroRect];
+	gANCMode.segmentStyle = NSSegmentStyleRounded;
+	gANCMode.trackingMode = NSSegmentSwitchTrackingSelectOne;
+	gANCMode.target = gWinTarget;
+	gANCMode.action = @selector(ancPicked:);
 	[rows addObject:@[occam_row_label(@"Noise"), gANCMode, occam_spacer()]];
 
 	gANCLevel = occam_slider(1, 4, 4, @selector(ancLevelMoved:));
@@ -407,7 +413,16 @@ void occam_window_set_led_modes(const char **names, int count) {
 }
 
 void occam_window_set_anc_modes(const char **names, int count) {
-	@autoreleasepool { occam_fill(gANCMode, names, count, -1); }
+	@autoreleasepool {
+		if (!gANCMode) return;
+		gQuiet = YES;
+		gANCMode.segmentCount = count;
+		for (int i = 0; i < count; i++) {
+			[gANCMode setLabel:[NSString stringWithUTF8String:names[i]] forSegment:i];
+			[gANCMode setWidth:0 forSegment:i];
+		}
+		gQuiet = NO;
+	}
 }
 
 void occam_window_set_sleep_options(const char **names, int count) {
@@ -441,16 +456,21 @@ void occam_window_set_sidetone(int value) {
 	}
 }
 
-void occam_window_set_extras(int ancMode, int ancLevel, int micMuted,
-                             int balance, int ledMode, int sleepIndex,
-                             int lowLatency) {
+void occam_window_set_extras(int ancMode, int ancLevel, int ancLevelActive,
+                             int micMuted, int balance, int ledMode,
+                             int sleepIndex, int lowLatency) {
 	@autoreleasepool {
 		gQuiet = YES;
-		if (ancMode >= 0 && ancMode < gANCMode.numberOfItems) {
-			[gANCMode selectItemAtIndex:ancMode];
+		if (ancMode >= 0 && ancMode < gANCMode.segmentCount) {
+			gANCMode.selectedSegment = ancMode;
 		}
 		gANCLevel.doubleValue = ancLevel;
 		gANCValue.stringValue = [NSString stringWithFormat:@"%d", ancLevel];
+		// The device ignores a level write outside noise cancelling, so the
+		// slider would otherwise sit there claiming to do something.
+		gANCLevel.enabled = ancLevelActive ? YES : NO;
+		gANCValue.textColor = ancLevelActive ? [NSColor labelColor]
+		                                     : [NSColor tertiaryLabelColor];
 		gMicMute.state = micMuted ? NSControlStateValueOn : NSControlStateValueOff;
 		gBalance.doubleValue = balance;
 		gBalanceValue.stringValue = [NSString stringWithFormat:@"%d", balance];

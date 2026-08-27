@@ -176,6 +176,9 @@ func SetSidetone(level byte) *Message { return New(SetSidetoneVolume, 0x00, leve
 type ANCMode struct {
 	Value byte
 	Name  string
+	// Level is whether the strength applies here. Only 0x01 uses it; the
+	// other two ignore a level write and keep the last 0x01 value.
+	Level bool
 }
 
 // ANCModes are the three states the earcup button cycles through.
@@ -187,9 +190,9 @@ type ANCMode struct {
 // The level only bites in mode 0x01. Writing one under the other two is
 // ignored and the device keeps its last 0x01 value.
 var ANCModes = []ANCMode{
-	{0x00, "Off"},
-	{0x01, "Noise cancelling"},
-	{0x50, "Ambient"},
+	{0x00, "Off", false},
+	{0x01, "Noise cancelling", true},
+	{0x50, "Ambient", false},
 }
 
 // ANCModeNames lists them for a picker.
@@ -209,6 +212,11 @@ func ANCModeRow(value byte) int {
 		}
 	}
 	return -1
+}
+
+// ANCLevelApplies reports whether the level slider does anything in this row.
+func ANCLevelApplies(row int) bool {
+	return row >= 0 && row < len(ANCModes) && ANCModes[row].Level
 }
 
 // ANCModeValue maps a row back to the byte to send.

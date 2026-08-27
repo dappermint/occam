@@ -27,7 +27,8 @@ func TestANCModeValues(t *testing.T) {
 	want := []struct {
 		value byte
 		name  string
-	}{{0x00, "Off"}, {0x01, "Noise cancelling"}, {0x50, "Ambient"}}
+		level bool
+	}{{0x00, "Off", false}, {0x01, "Noise cancelling", true}, {0x50, "Ambient", false}}
 
 	if len(ANCModes) != len(want) {
 		t.Fatalf("have %d modes, want %d", len(ANCModes), len(want))
@@ -36,6 +37,9 @@ func TestANCModeValues(t *testing.T) {
 		if ANCModes[i].Value != w.value || ANCModes[i].Name != w.name {
 			t.Errorf("row %d is {0x%02X %q}, want {0x%02X %q}",
 				i, ANCModes[i].Value, ANCModes[i].Name, w.value, w.name)
+		}
+		if ANCLevelApplies(i) != w.level {
+			t.Errorf("ANCLevelApplies(%d) = %v, want %v", i, ANCLevelApplies(i), w.level)
 		}
 		if got := ANCModeRow(w.value); got != i {
 			t.Errorf("ANCModeRow(0x%02X) = %d, want %d", w.value, got, i)

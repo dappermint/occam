@@ -19,9 +19,9 @@ void occam_window_set_sidetone(int value);
 void occam_window_set_led_modes(const char **names, int count);
 void occam_window_set_anc_modes(const char **names, int count);
 void occam_window_set_sleep_options(const char **names, int count);
-void occam_window_set_extras(int ancMode, int ancLevel, int micMuted,
-                             int balance, int ledMode, int sleepIndex,
-                             int lowLatency);
+void occam_window_set_extras(int ancMode, int ancLevel, int ancLevelActive,
+                             int micMuted, int balance, int ledMode,
+                             int sleepIndex, int lowLatency);
 void occam_window_set_mix(const char **layouts, int count, int selected,
                           int on, int enabled, const char *status);
 void occam_window_set_status(const char *text);
@@ -60,16 +60,18 @@ type WindowHandlers struct {
 
 // Extras is everything in the window below the equalizer.
 type Extras struct {
-	ANCMode    int
-	ANCLevel   int
-	MicMuted   bool
-	Balance    int
-	LEDMode    int
-	SleepIndex int
-	LowLatency bool
-	Sidetone   int
-	MicPreset  int
-	MicBands   [10]int8
+	ANCMode  int
+	ANCLevel int
+	// ANCLevelActive greys the level out in the modes that ignore it.
+	ANCLevelActive bool
+	MicMuted       bool
+	Balance        int
+	LEDMode        int
+	SleepIndex     int
+	LowLatency     bool
+	Sidetone       int
+	MicPreset      int
+	MicBands       [10]int8
 }
 
 // SetLEDModes fills the indicator light popup. The device takes 0, 1 or 2.
@@ -95,8 +97,9 @@ func SetSleepOptions(names []string) {
 
 // SetExtras fills those controls without firing their callbacks.
 func SetExtras(e Extras) {
-	C.occam_window_set_extras(C.int(e.ANCMode), C.int(e.ANCLevel), cbool(e.MicMuted),
-		C.int(e.Balance), C.int(e.LEDMode), C.int(e.SleepIndex), cbool(e.LowLatency))
+	C.occam_window_set_extras(C.int(e.ANCMode), C.int(e.ANCLevel), cbool(e.ANCLevelActive),
+		cbool(e.MicMuted), C.int(e.Balance), C.int(e.LEDMode), C.int(e.SleepIndex),
+		cbool(e.LowLatency))
 }
 
 func cbool(b bool) C.int {

@@ -344,6 +344,7 @@ func readExtras(dev *hid.Device) menu.Extras {
 	var e menu.Extras
 	if m, err := ask(dev, proto.ANC()); err == nil && len(m.Args) >= 2 {
 		e.ANCMode, e.ANCLevel = proto.ANCModeRow(m.Args[0]), int(m.Args[1])
+		e.ANCLevelActive = proto.ANCLevelApplies(e.ANCMode)
 	}
 	if m, err := ask(dev, proto.MicStatus()); err == nil && len(m.Args) >= 1 {
 		e.MicMuted = m.Args[0] != 0
