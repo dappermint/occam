@@ -2,7 +2,7 @@ class Occam < Formula
   desc "Control a Razer BlackShark V3 Pro from macOS, without Synapse"
   homepage "https://github.com/dappermint/occam"
   url "https://github.com/dappermint/occam/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "8d112f7cc8cf259e623c5768d9fe7405436a3bd9dfc510afb0223b61eb8a40a3"
   license "MIT"
   head "https://github.com/dappermint/occam.git", branch: "main"
 
@@ -12,7 +12,7 @@ class Occam < Formula
 
   def install
     # output is pinned so the binary name never follows the formula name.
-    system "go", "build", *std_go_args(output: bin/"occam",
+    system "go", "build", *std_go_args(output:  bin/"occam",
                                        ldflags: "-X github.com/dappermint/occam/cmd.version=#{version}")
     doc.install "README.md", "docs/protocol.md", "docs/design.md"
   end

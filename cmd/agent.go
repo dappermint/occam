@@ -55,6 +55,12 @@ const agentPlist = `<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 `
 
+// isThrowaway reports whether a path is a `go run` build, which lives in a
+// temp directory that vanishes and would leave launchd firing at nothing.
+func isThrowaway(path string) bool {
+	return strings.Contains(path, os.TempDir()) || strings.Contains(path, "/go-build")
+}
+
 func agentPaths() (plist, logDir string, err error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -86,18 +92,21 @@ func newAgentInstall() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if binary, err = filepath.EvalSymlinks(exe); err != nil {
-					return err
+				// Resolve only to decide whether this is a throwaway build.
+				// The unresolved path is the one worth recording: under
+				// Homebrew it is the stable /opt/homebrew/bin symlink, while
+				// the resolved one points into a versioned Cellar directory
+				// that disappears on the next upgrade.
+				resolved, err := filepath.EvalSymlinks(exe)
+				if err != nil {
+					resolved = exe
 				}
+				if isThrowaway(resolved) {
+					return fmt.Errorf("refusing to install %s, it is a go run temporary; "+
+						"build first with `just install`, or pass --binary", resolved)
+				}
+				binary = exe
 			}
-			// A `go run` binary lives in a temp dir that vanishes, so launchd
-			// would fire at a path that no longer exists. --print is exempt,
-			// it installs nothing.
-			if !print && (strings.Contains(binary, os.TempDir()) || strings.Contains(binary, "/go-build")) {
-				return fmt.Errorf("refusing to install %s, it is a go run temporary; "+
-					"build first with `just install`, or pass --binary", binary)
-			}
-
 			plistPath, logDir, err := agentPaths()
 			if err != nil {
 				return err
