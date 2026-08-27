@@ -58,6 +58,12 @@ var (
 
 	// Atmos bed. The four height speakers sit at 45 degrees up, which is
 	// where Dolby puts top-front and top-rear in a 7.1.4 room.
+	//
+	// Not the default, and the reason is a listening test rather than a
+	// preference: with no head tracking the height channels were
+	// indistinguishable from the front pair, so they were spending eight
+	// convolutions a sample on a cue the listener cannot confirm. Kept
+	// because it costs nothing to keep and head tracking would change it.
 	Surround714 = Layout{"7.1.4", []Speaker{
 		{Name: "L", Azimuth: -30},
 		{Name: "R", Azimuth: 30},

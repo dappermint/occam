@@ -126,10 +126,15 @@ func usage() {
 
   occam-spatial [flags] <input.wav>
 
-Nothing on macOS emits twelve discrete channels, so the usual path is to
+Nothing on macOS emits discrete surround channels, so the usual path is to
 synthesise a layout from stereo and then render that:
 
-  occam-spatial --upmix 7.1.4 track.wav
+  occam-spatial --upmix 7.1 track.wav
+
+7.1 rather than 7.1.4 on purpose. The height channels cost eight extra
+convolutions per sample and, without head tracking, listening tests here could
+not tell them from the front pair. 7.1.4 is still available if you have a
+reason to want it.
 
 Already have multichannel audio? Just render it:
 
