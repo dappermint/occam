@@ -12,7 +12,8 @@ extern void occamANCChanged(int on, int level);
 extern void occamMicChanged(int muted);
 extern void occamBalanceChanged(int value);
 extern void occamLEDChanged(int on);
-extern void occamPowerOffChanged(int minutes);
+extern void occamPowerOffChanged(int index);
+extern void occamLowLatencyChanged(int on);
 
 // AppKit calls that must happen on the main thread, invoked from goroutines.
 void occam_main_async(void) {
@@ -31,15 +32,15 @@ static NSSlider          *gBand[OCCAM_BANDS];
 static NSTextField       *gBandValue[OCCAM_BANDS];
 static NSSlider          *gSidetone = nil;
 static NSTextField       *gSidetoneValue = nil;
-static NSButton          *gANC = nil;
 static NSSlider          *gANCLevel = nil;
 static NSTextField       *gANCValue = nil;
 static NSButton          *gMicMute = nil;
 static NSSlider          *gBalance = nil;
 static NSTextField       *gBalanceValue = nil;
 static NSPopUpButton     *gDongleLED = nil;
-static NSSlider          *gPowerOff = nil;
-static NSTextField       *gPowerOffValue = nil;
+static NSPopUpButton     *gPowerOff = nil;
+static NSButton          *gLowLatency = nil;
+static NSPopUpButton     *gANCMode = nil;
 static NSTextField       *gStatus = nil;
 
 // Set while Go is pushing values in, so programmatic changes do not echo back
@@ -78,17 +79,16 @@ static NSTextField *occam_label(NSString *text, CGFloat width, NSTextAlignment a
 	occamSidetoneChanged(value);
 }
 
-- (void)ancToggled:(id)sender {
+- (void)ancPicked:(id)sender {
 	if (gQuiet) return;
-	occamANCChanged((int)[(NSButton *)sender state] == NSControlStateValueOn ? 1 : 0,
-	                (int)lround(gANCLevel.doubleValue));
+	occamANCChanged((int)[gANCMode indexOfSelectedItem], (int)lround(gANCLevel.doubleValue));
 }
 
 - (void)ancLevelMoved:(id)sender {
 	if (gQuiet) return;
 	int level = (int)lround([(NSSlider *)sender doubleValue]);
 	gANCValue.stringValue = [NSString stringWithFormat:@"%d", level];
-	occamANCChanged(gANC.state == NSControlStateValueOn ? 1 : 0, level);
+	occamANCChanged((int)[gANCMode indexOfSelectedItem], level);
 }
 
 - (void)micToggled:(id)sender {
@@ -108,12 +108,14 @@ static NSTextField *occam_label(NSString *text, CGFloat width, NSTextAlignment a
 	occamLEDChanged((int)[(NSPopUpButton *)sender indexOfSelectedItem]);
 }
 
-- (void)powerOffMoved:(id)sender {
+- (void)powerOffPicked:(id)sender {
 	if (gQuiet) return;
-	int v = (int)lround([(NSSlider *)sender doubleValue]);
-	gPowerOffValue.stringValue = v == 0 ? @"never"
-	                                    : [NSString stringWithFormat:@"%d min", v];
-	occamPowerOffChanged(v);
+	occamPowerOffChanged((int)[(NSPopUpButton *)sender indexOfSelectedItem]);
+}
+
+- (void)lowLatencyToggled:(id)sender {
+	if (gQuiet) return;
+	occamLowLatencyChanged([(NSButton *)sender state] == NSControlStateValueOn ? 1 : 0);
 }
 
 - (void)actionClicked:(id)sender {
@@ -172,8 +174,11 @@ void occam_window_build(const char **bandLabels, int minDB, int maxDB) {
 		sep2.boxType = NSBoxSeparator;
 		[rows addObject:sep2];
 
-		gSidetone = [NSSlider sliderWithValue:0 minValue:0 maxValue:255
+		// Synapse's mic monitoring slider runs 0 to 15, not 0 to 255.
+		gSidetone = [NSSlider sliderWithValue:0 minValue:0 maxValue:15
 		                               target:gWinTarget action:@selector(sidetoneMoved:)];
+		gSidetone.numberOfTickMarks = 16;
+		gSidetone.allowsTickMarkValuesOnly = YES;
 		gSidetoneValue = occam_label(@"0", 40, NSTextAlignmentLeft);
 		[rows addObject:occam_row(@"Sidetone", gSidetone, gSidetoneValue)];
 
@@ -181,14 +186,17 @@ void occam_window_build(const char **bandLabels, int minDB, int maxDB) {
 		sep3.boxType = NSBoxSeparator;
 		[rows addObject:sep3];
 
-		gANC = [NSButton checkboxWithTitle:@"Noise cancelling"
-		                            target:gWinTarget action:@selector(ancToggled:)];
-		gANCLevel = [NSSlider sliderWithValue:0 minValue:0 maxValue:4
+		gANCMode = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+		gANCMode.target = gWinTarget;
+		gANCMode.action = @selector(ancPicked:);
+		[rows addObject:occam_row(@"Noise", gANCMode, occam_label(@"", 40, NSTextAlignmentLeft))];
+
+		// Synapse offers levels 1 through 4, with no zero.
+		gANCLevel = [NSSlider sliderWithValue:1 minValue:1 maxValue:4
 		                               target:gWinTarget action:@selector(ancLevelMoved:)];
-		gANCLevel.numberOfTickMarks = 5;
+		gANCLevel.numberOfTickMarks = 4;
 		gANCLevel.allowsTickMarkValuesOnly = YES;
-		gANCValue = occam_label(@"0", 40, NSTextAlignmentLeft);
-		[rows addObject:gANC];
+		gANCValue = occam_label(@"1", 40, NSTextAlignmentLeft);
 		[rows addObject:occam_row(@"Level", gANCLevel, gANCValue)];
 
 		gMicMute = [NSButton checkboxWithTitle:@"Mute microphone"
@@ -205,10 +213,14 @@ void occam_window_build(const char **bandLabels, int minDB, int maxDB) {
 		gDongleLED.action = @selector(ledPicked:);
 		[rows addObject:occam_row(@"Light", gDongleLED, occam_label(@"", 40, NSTextAlignmentLeft))];
 
-		gPowerOff = [NSSlider sliderWithValue:15 minValue:0 maxValue:60
-		                               target:gWinTarget action:@selector(powerOffMoved:)];
-		gPowerOffValue = occam_label(@"15 min", 52, NSTextAlignmentLeft);
-		[rows addObject:occam_row(@"Sleep", gPowerOff, gPowerOffValue)];
+		gPowerOff = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+		gPowerOff.target = gWinTarget;
+		gPowerOff.action = @selector(powerOffPicked:);
+		[rows addObject:occam_row(@"Sleep", gPowerOff, occam_label(@"", 40, NSTextAlignmentLeft))];
+
+		gLowLatency = [NSButton checkboxWithTitle:@"Ultra-low latency"
+		                                   target:gWinTarget action:@selector(lowLatencyToggled:)];
+		[rows addObject:gLowLatency];
 
 		NSButton *save = [NSButton buttonWithTitle:@"Save to Profile"
 		                                    target:gWinTarget action:@selector(actionClicked:)];
@@ -287,34 +299,48 @@ void occam_window_set_sidetone(int value) {
 	}
 }
 
-void occam_window_set_led_modes(const char **names, int count) {
-	@autoreleasepool {
-		if (!gDongleLED) return;
-		gQuiet = YES;
-		[gDongleLED removeAllItems];
-		for (int i = 0; i < count; i++) {
-			[gDongleLED addItemWithTitle:[NSString stringWithUTF8String:names[i]]];
-		}
-		gQuiet = NO;
+static void occam_fill(NSPopUpButton *b, const char **names, int count) {
+	if (!b) return;
+	gQuiet = YES;
+	[b removeAllItems];
+	for (int i = 0; i < count; i++) {
+		[b addItemWithTitle:[NSString stringWithUTF8String:names[i]]];
 	}
+	gQuiet = NO;
 }
 
-void occam_window_set_extras(int ancOn, int ancLevel, int micMuted,
-                             int balance, int ledMode, int powerOff) {
+void occam_window_set_led_modes(const char **names, int count) {
+	@autoreleasepool { occam_fill(gDongleLED, names, count); }
+}
+
+void occam_window_set_anc_modes(const char **names, int count) {
+	@autoreleasepool { occam_fill(gANCMode, names, count); }
+}
+
+void occam_window_set_sleep_options(const char **names, int count) {
+	@autoreleasepool { occam_fill(gPowerOff, names, count); }
+}
+
+void occam_window_set_extras(int ancMode, int ancLevel, int micMuted,
+                             int balance, int ledMode, int sleepIndex,
+                             int lowLatency) {
 	@autoreleasepool {
 		gQuiet = YES;
-		gANC.state = ancOn ? NSControlStateValueOn : NSControlStateValueOff;
+		if (ancMode >= 0 && ancMode < gANCMode.numberOfItems) {
+			[gANCMode selectItemAtIndex:ancMode];
+		}
 		gANCLevel.doubleValue = ancLevel;
 		gANCValue.stringValue = [NSString stringWithFormat:@"%d", ancLevel];
+		gLowLatency.state = lowLatency ? NSControlStateValueOn : NSControlStateValueOff;
 		gMicMute.state = micMuted ? NSControlStateValueOn : NSControlStateValueOff;
 		gBalance.doubleValue = balance;
 		gBalanceValue.stringValue = [NSString stringWithFormat:@"%d", balance];
 		if (ledMode >= 0 && ledMode < gDongleLED.numberOfItems) {
 			[gDongleLED selectItemAtIndex:ledMode];
 		}
-		gPowerOff.doubleValue = powerOff;
-		gPowerOffValue.stringValue = powerOff == 0 ? @"never"
-		                           : [NSString stringWithFormat:@"%d min", powerOff];
+		if (sleepIndex >= 0 && sleepIndex < gPowerOff.numberOfItems) {
+			[gPowerOff selectItemAtIndex:sleepIndex];
+		}
 		gQuiet = NO;
 	}
 }

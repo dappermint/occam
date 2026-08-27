@@ -14,6 +14,7 @@ const (
 	GetMicPresetEQIndex   byte = 0x16
 	GetMicCustomerEQBand  byte = 0x17
 	GetSidetoneVolume     byte = 0x19
+	GetWirelessConnection byte = 0x20
 	GetBatteryStatus      byte = 0x21
 	GetChargingStatus     byte = 0x2A
 	GetAutoPowerOffStatus byte = 0x2C
@@ -34,10 +35,15 @@ const (
 	SetANCStatusAndLevel  byte = 0x92
 	SetAutoPowerOffStatus byte = 0xAC
 	SetMicStatus          byte = 0xD5
-	SetGameChatBalance    byte = 0xDC
+	SetHyperSpeedMode     byte = 0xDF
+
+	// Confirmed by a later capture: Synapse sent 0xDC itself once the
+	// game/chat slider was touched, matching what the rule predicted.
+	SetGameChatBalance byte = 0xDC
 
 	SetCustomerEQBand    byte = 0x95
 	SetMicPresetEQIndex  byte = 0x96
+	SetMicCustomerEQBand byte = 0x97
 	SetSidetoneStatus    byte = 0x98
 	SetSidetoneVolume    byte = 0x99
 	SetSpeakerPresetEQ   byte = 0x9E
@@ -64,6 +70,7 @@ var commandNames = map[byte]string{
 	GetMicPresetEQIndex:   "getMicPresetEQIndex",
 	GetMicCustomerEQBand:  "getMicCustomerEQBand",
 	GetSidetoneVolume:     "getSidetoneVolume",
+	GetWirelessConnection: "getWirelessConnectionStatus",
 	GetBatteryStatus:      "getBatteryStatus",
 	GetChargingStatus:     "getChargingStatus",
 	GetAutoPowerOffStatus: "getAutoPowerOffStatus",
@@ -79,10 +86,12 @@ var commandNames = map[byte]string{
 	SetANCStatusAndLevel:  "setANCStatusAndLevel",
 	SetAutoPowerOffStatus: "setAutoPowerOffStatus",
 	SetMicStatus:          "setMicStatus",
+	SetHyperSpeedMode:     "setHyperSpeedMode",
 	SetGameChatBalance:    "setGameChatBalance",
 
 	SetCustomerEQBand:    "setCustomerEQBand",
 	SetMicPresetEQIndex:  "setMicPresetEQIndex",
+	SetMicCustomerEQBand: "setMicCustomerEQBand",
 	SetSidetoneStatus:    "setSidetoneStatus",
 	SetSidetoneVolume:    "setSidetoneVolume",
 	SetSpeakerPresetEQ:   "setSpeakerPresetEQStatus",

@@ -172,16 +172,24 @@ func SerialNumber() *Message    { return New(GetSerialNumber, 0x00) }
 // Sidetone is the mic monitoring level, 0 to 255.
 func SetSidetone(level byte) *Message { return New(SetSidetoneVolume, 0x00, level) }
 
-// ANC reads noise cancelling status and level, two bytes.
+// ANCModes are the noise cancelling states. Synapse shows a master toggle and
+// an ANC/Ambient pair; the device reported 1 while ANC was selected, so 0 is
+// taken to be off and 2 to be ambient. Only 0 and 1 are confirmed.
+var ANCModes = []string{"Off", "Noise cancelling", "Ambient"}
+
+// ANCLevelMin and ANCLevelMax bound the level. Synapse offers 1, 2, 3, 4 with
+// no zero, and the device reported 4 while 4 was selected.
+const (
+	ANCLevelMin = 1
+	ANCLevelMax = 4
+)
+
+// ANC reads noise cancelling mode and level, two bytes.
 func ANC() *Message { return New(GetANCStatusAndLevel, 0x00) }
 
-// SetANC writes status and level back.
-func SetANC(on bool, level byte) *Message {
-	var s byte
-	if on {
-		s = 1
-	}
-	return New(SetANCStatusAndLevel, 0x00, s, level)
+// SetANC writes mode and level back.
+func SetANC(mode, level byte) *Message {
+	return New(SetANCStatusAndLevel, 0x00, mode, level)
 }
 
 // MicStatus reads whether the mic is muted.
@@ -217,6 +225,8 @@ var PresetNames = []string{
 	"Esports 3",
 }
 
+// Confirmed against the Power tab: value 0 was selected there while the device
+// reported 0, and the three labels are Synapse's own wording.
 var LEDModes = []string{
 	"Connection status",
 	"Battery status",
@@ -226,12 +236,34 @@ var LEDModes = []string{
 // SetDongleLED sets the indicator light mode, 0 to 2.
 func SetDongleLED(mode byte) *Message { return New(SetDongleLEDStatus, 0x00, mode) }
 
+// SleepMinutes are the idle timeouts Synapse offers. It is a fixed list of
+// four, not a free slider; the device reported 15 while 15 was selected.
+// Synapse also has a master toggle for the feature whose off value is unknown,
+// so occam does not offer one.
+var SleepMinutes = []byte{15, 30, 45, 60}
+
 // AutoPowerOff reads the idle timeout. The device reports minutes.
 func AutoPowerOff() *Message { return New(GetAutoPowerOffStatus, 0x00) }
 
-// SetAutoPowerOff writes the idle timeout in minutes. 0 disables it.
+// SetAutoPowerOff writes the idle timeout in minutes.
 func SetAutoPowerOff(minutes byte) *Message {
 	return New(SetAutoPowerOffStatus, 0x00, minutes)
+}
+
+// SidetoneMax is the top of Synapse's mic monitoring slider.
+const SidetoneMax = 15
+
+// HyperSpeed is Synapse's "Ultra-Low Latency" toggle, the Gen-2 dongle mode.
+func HyperSpeed() *Message { return New(GetHyperSpeedMode, 0x00) }
+
+// SetHyperSpeed turns ultra-low latency on or off. The setter id follows the
+// set = get | 0x80 rule and is not itself in any capture.
+func SetHyperSpeed(on bool) *Message {
+	var v byte
+	if on {
+		v = 1
+	}
+	return New(SetHyperSpeedMode, 0x00, v)
 }
 
 // SetGameChat writes the mix between the Game and Chat endpoints.

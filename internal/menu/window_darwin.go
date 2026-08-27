@@ -15,8 +15,11 @@ void occam_window_set_slots(const char **names, int count, int selected);
 void occam_window_set_bands(const int *values, int count);
 void occam_window_set_sidetone(int value);
 void occam_window_set_led_modes(const char **names, int count);
-void occam_window_set_extras(int ancOn, int ancLevel, int micMuted,
-                             int balance, int ledMode, int powerOff);
+void occam_window_set_anc_modes(const char **names, int count);
+void occam_window_set_sleep_options(const char **names, int count);
+void occam_window_set_extras(int ancMode, int ancLevel, int micMuted,
+                             int balance, int ledMode, int sleepIndex,
+                             int lowLatency);
 void occam_window_set_status(const char *text);
 */
 import "C"
@@ -35,26 +38,28 @@ const (
 // WindowHandlers is what the window calls back into. Every one runs off the
 // main thread, so they may talk to the device.
 type WindowHandlers struct {
-	OnBand     func(band, value int)
-	OnSlot     func(slot int)
-	OnSidetone func(value int)
-	OnANC      func(on bool, level int)
-	OnMic      func(muted bool)
-	OnBalance  func(value int)
-	OnLED      func(mode int)
-	OnPowerOff func(minutes int)
-	OnAction   func(tag int)
+	OnBand       func(band, value int)
+	OnSlot       func(slot int)
+	OnSidetone   func(value int)
+	OnANC        func(mode, level int)
+	OnMic        func(muted bool)
+	OnBalance    func(value int)
+	OnLED        func(mode int)
+	OnPowerOff   func(index int)
+	OnLowLatency func(on bool)
+	OnAction     func(tag int)
 }
 
 // Extras is everything in the window below the equalizer.
 type Extras struct {
-	ANCOn    bool
-	ANCLevel int
-	MicMuted bool
-	Balance  int
-	LEDMode  int
-	PowerOff int
-	Sidetone int
+	ANCMode    int
+	ANCLevel   int
+	MicMuted   bool
+	Balance    int
+	LEDMode    int
+	SleepIndex int
+	LowLatency bool
+	Sidetone   int
 }
 
 // SetLEDModes fills the indicator light popup. The device takes 0, 1 or 2.
@@ -64,10 +69,24 @@ func SetLEDModes(names []string) {
 	C.occam_window_set_led_modes(c, C.int(len(names)))
 }
 
+// SetANCModes fills the noise cancelling popup.
+func SetANCModes(names []string) {
+	c, free := cStrings(names)
+	defer free()
+	C.occam_window_set_anc_modes(c, C.int(len(names)))
+}
+
+// SetSleepOptions fills the idle timeout popup.
+func SetSleepOptions(names []string) {
+	c, free := cStrings(names)
+	defer free()
+	C.occam_window_set_sleep_options(c, C.int(len(names)))
+}
+
 // SetExtras fills those controls without firing their callbacks.
 func SetExtras(e Extras) {
-	C.occam_window_set_extras(cbool(e.ANCOn), C.int(e.ANCLevel), cbool(e.MicMuted),
-		C.int(e.Balance), C.int(e.LEDMode), C.int(e.PowerOff))
+	C.occam_window_set_extras(C.int(e.ANCMode), C.int(e.ANCLevel), cbool(e.MicMuted),
+		C.int(e.Balance), C.int(e.LEDMode), C.int(e.SleepIndex), cbool(e.LowLatency))
 }
 
 func cbool(b bool) C.int {
@@ -197,9 +216,9 @@ func occamSidetoneChanged(value C.int) {
 }
 
 //export occamANCChanged
-func occamANCChanged(on, level C.int) {
+func occamANCChanged(mode, level C.int) {
 	if h := handlers().OnANC; h != nil {
-		go h(on != 0, int(level))
+		go h(int(mode), int(level))
 	}
 }
 
@@ -225,9 +244,16 @@ func occamLEDChanged(mode C.int) {
 }
 
 //export occamPowerOffChanged
-func occamPowerOffChanged(minutes C.int) {
+func occamPowerOffChanged(index C.int) {
 	if h := handlers().OnPowerOff; h != nil {
-		go h(int(minutes))
+		go h(int(index))
+	}
+}
+
+//export occamLowLatencyChanged
+func occamLowLatencyChanged(on C.int) {
+	if h := handlers().OnLowLatency; h != nil {
+		go h(on != 0)
 	}
 }
 

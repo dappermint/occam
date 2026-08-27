@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -69,6 +70,8 @@ func (e *editor) load(st *state) {
 
 	menu.RunOnMain(func() {
 		menu.SetLEDModes(proto.LEDModes)
+		menu.SetANCModes(proto.ANCModes)
+		menu.SetSleepOptions(sleepLabels())
 		menu.SetSlots(names, slot)
 		menu.SetBands(bandsOf(eq))
 		menu.SetExtras(extras)
@@ -181,21 +184,33 @@ func (e *editor) write(what string, m *proto.Message) {
 	menu.RunOnMain(func() { menu.SetStatus(what + " set") })
 }
 
-func (e *editor) setANC(on bool, level int) {
-	e.write("noise cancelling", proto.SetANC(on, byte(level)))
+func (e *editor) setANC(mode, level int) {
+	e.write("noise cancelling", proto.SetANC(byte(mode), byte(level)))
 }
 
-func (e *editor) setMic(muted bool)   { e.write("microphone", proto.SetMicMuted(muted)) }
-func (e *editor) setBalance(v int)    { e.write("game/chat", proto.SetGameChat(byte(v))) }
-func (e *editor) setLED(mode int)     { e.write("dongle light", proto.SetDongleLED(byte(mode))) }
-func (e *editor) setPowerOff(min int) { e.write("sleep timer", proto.SetAutoPowerOff(byte(min))) }
+func (e *editor) setMic(muted bool) { e.write("microphone", proto.SetMicMuted(muted)) }
+func (e *editor) setBalance(v int)  { e.write("game/chat", proto.SetGameChat(byte(v))) }
+func (e *editor) setLED(mode int)   { e.write("dongle light", proto.SetDongleLED(byte(mode))) }
+
+// setPowerOff takes the popup index, since Synapse offers a fixed list rather
+// than a free value.
+func (e *editor) setPowerOff(index int) {
+	if index < 0 || index >= len(proto.SleepMinutes) {
+		return
+	}
+	e.write("sleep timer", proto.SetAutoPowerOff(proto.SleepMinutes[index]))
+}
+
+func (e *editor) setLowLatency(on bool) {
+	e.write("ultra-low latency", proto.SetHyperSpeed(on))
+}
 
 // readExtras pulls everything below the equalizer. A setting the device does
 // not answer for keeps its zero value rather than failing the whole read.
 func readExtras(dev *hid.Device) menu.Extras {
 	var e menu.Extras
 	if m, err := ask(dev, proto.ANC()); err == nil && len(m.Args) >= 2 {
-		e.ANCOn, e.ANCLevel = m.Args[0] != 0, int(m.Args[1])
+		e.ANCMode, e.ANCLevel = int(m.Args[0]), int(m.Args[1])
 	}
 	if m, err := ask(dev, proto.MicStatus()); err == nil && len(m.Args) >= 1 {
 		e.MicMuted = m.Args[0] != 0
@@ -207,7 +222,10 @@ func readExtras(dev *hid.Device) menu.Extras {
 		e.LEDMode = int(m.Args[0])
 	}
 	if m, err := ask(dev, proto.AutoPowerOff()); err == nil && len(m.Args) >= 1 {
-		e.PowerOff = int(m.Args[0])
+		e.SleepIndex = sleepIndexOf(m.Args[0])
+	}
+	if m, err := ask(dev, proto.HyperSpeed()); err == nil && len(m.Args) >= 1 {
+		e.LowLatency = m.Args[0] != 0
 	}
 	if m, err := ask(dev, proto.New(proto.GetSidetoneVolume, 0x00)); err == nil && len(m.Args) >= 1 {
 		e.Sidetone = int(m.Args[0])
@@ -254,6 +272,24 @@ func (e *editor) saveToProfile(st *state) {
 		return
 	}
 	menu.RunOnMain(func() { menu.SetStatus("Saved to profile") })
+}
+
+// sleepIndexOf maps the device's minute value back to a popup row.
+func sleepIndexOf(minutes byte) int {
+	for i, m := range proto.SleepMinutes {
+		if m == minutes {
+			return i
+		}
+	}
+	return 0
+}
+
+func sleepLabels() []string {
+	out := make([]string, len(proto.SleepMinutes))
+	for i, m := range proto.SleepMinutes {
+		out[i] = fmt.Sprintf("%d min", m)
+	}
+	return out
 }
 
 func bandLabels() []string {
