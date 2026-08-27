@@ -17,6 +17,13 @@ const Slots = 9
 // and 0x81 to 0x84, so +5 and -4 are the extremes actually observed.
 const signBit byte = 0x80
 
+// BandLabels are the centre frequencies Razer's own UI prints under each
+// slider, lifted from the Synapse product page logs. Ten bands, ten labels.
+var BandLabels = [Bands]string{
+	"31Hz", "63Hz", "125Hz", "250Hz", "500Hz",
+	"1kHz", "2kHz", "4kHz", "8kHz", "16kHz",
+}
+
 // EQ is one curve, in dB per band.
 type EQ [Bands]int8
 
@@ -65,6 +72,23 @@ func ParseBands(b []byte) (EQ, error) {
 		eq[i] = decodeBand(v)
 	}
 	return eq, nil
+}
+
+// Rows pairs each band with its frequency label, for anything that wants to
+// show the curve rather than just the numbers.
+func (e EQ) Rows() []struct {
+	Label string
+	Level int
+} {
+	out := make([]struct {
+		Label string
+		Level int
+	}, Bands)
+	for i, v := range e {
+		out[i].Label = BandLabels[i]
+		out[i].Level = int(v)
+	}
+	return out
 }
 
 func (e EQ) String() string {

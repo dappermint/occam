@@ -30,6 +30,7 @@ func newRoot() *cobra.Command {
 	root.AddCommand(newSave())
 	root.AddCommand(newWatch())
 	root.AddCommand(newAgent())
+	root.AddCommand(newMenu())
 	return root
 }
 

@@ -55,6 +55,44 @@ devices, so that is two volume sliders, not a protocol feature.
 
 firmware flashing is a hard non-goal. no DFU, no bootloader, ever.
 
+## menu bar
+
+```
+occam menu
+```
+
+an NSStatusItem, no .app bundle: `NSApplicationActivationPolicyAccessory`
+keeps it out of the dock, which is all a bundle would have bought. the icon is
+the `headphones` SF Symbol as a template image, so it tracks light, dark and
+highlight states.
+
+the layout follows synapse's own for this device, section names and band
+frequencies included, both read out of the product page logs:
+
+```
+Razer BlackShark V3 Pro
+  dongle, 87%
+──────────────
+SOUND
+✓ Custom 0
+  Preset 1
+  ...
+──────────────
+EQUALIZER
+  31Hz   +0 dB
+  63Hz   +0 dB
+  125Hz  +3 dB
+  ...
+──────────────
+Re-apply Profile
+Save Current to Profile
+Quit occam
+```
+
+it does everything `occam watch` does, so it replaces it in the launchd agent.
+slot names are the one thing missing: razer keeps those in a cloud eq library
+keyed by `cloudEqId` and that mapping is not in the logs.
+
 ## persistence
 
 ```
