@@ -21,7 +21,7 @@ open ok
   0xFF14/0x01    true
 ```
 
-no synapse and no windows involved.
+the EQ changes audibly, set from macOS, no synapse and no windows involved.
 
 ```
 $ occam eq --bands "6,6,0,0,0,0,0,0,0,0" --slot 4
@@ -31,20 +31,22 @@ battery    87%
 
 ## what works
 
-- 10-band speaker EQ across nine onboard slots, `occam eq`
-- 10-band mic EQ, mic presets, sidetone, and mic mute
-- active noise cancellation (off, anc, ambient) and anc level
-- game/chat balance, dongle indicator light, auto power off, ultra-low latency
+- 10-band speaker and mic EQ across nine onboard slots, `occam eq`
+- noise cancelling modes, ANC level, sidetone, mic mute, low latency
 - reading every slot back with its metadata, `occam profile`
-- saving state to TOML and writing it back, `occam save` / `occam apply`
-- menu bar status item and three-pane AppKit settings window, `occam menu`
-- re-applying profile whenever the dongle reconnects, `occam agent install`
-- battery, charging state, firmware version, serial, `occam get`
-- 41 razer cloud presets baked in, `occam presets`
-- offline multichannel and stereo-upmix binaural rendering, `occam-spatial`
-- realtime system audio binaural rendering via CoreAudio tap, `occmixer`
-- watching raw HID traffic, `occam listen`
-- interactive REPL console for probing the device, `occam console`
+- saving that to TOML and writing it back, `occam save` / `occam apply`
+- re-applying it whenever the dongle reconnects, `occam agent install`
+- battery, charging, firmware, serial, `occam get`
+- watching the device talk, `occam listen`
+
+```
+$ occam profile
+  slot bands (dB)
+   0   0,0,0,0,0,0,0,0,0,0
+   1   2,2,5,5,1,-1,2,3,3,3 cloud=1
+  *3   -2,-1,-1,-2,3,3,0,1,2,1 custom cloud=22
+   ...
+```
 
 there is no DSP volume or enhancement command. on the V3 Pro those are THX
 host-side processing, not device settings, so they do not exist over HID.
@@ -53,18 +55,6 @@ game/chat balance is already free: the dongle presents two CoreAudio output
 devices, so that is two volume sliders, not a protocol feature.
 
 firmware flashing is a hard non-goal. no DFU, no bootloader, ever.
-
-## install
-
-```
-brew install dappermint/tap/occam
-brew services start occam      # menu bar app at login
-```
-
-three binaries:
-- `occam`: headset control, menu bar app, settings window, launchd agent
-- `occam-spatial`: renders audio files to binaural with stereo upmix
-- `occmixer`: renders live system audio to binaural as it plays
 
 ## menu bar and window
 
@@ -89,29 +79,30 @@ Settings…
 Quit occam
 ```
 
-**Settings…** opens an AppKit window with three tabs:
+**Settings…** opens a real AppKit window across three tabs:
 
-- **Headset**: preset picker, ten sliders labelled with razer's band frequencies
-  (31Hz through 16kHz, -6dB to +6dB), noise cancelling mode and level,
-  game/chat balance, dongle indicator light, auto power off timer, and
-  ultra-low latency toggle
-- **Microphone**: mic mute toggle, monitoring (sidetone) slider, mic preset
-  picker, and ten mic EQ sliders
-- **Spatial**: toggle realtime binaural rendering of system audio, select layout
-  (7.1 or 7.1.4), and check mixer status
-- bottom bar: status text, **Reload from Headset**, and **Save to Profile**
+**Headset** has a preset picker, ten sliders labelled with razer's own band
+frequencies (31Hz through 16kHz, -6dB to +6dB), noise cancelling with a level
+slider, game/chat balance, the dongle indicator light, a sleep timer and an
+ultra-low latency toggle.
+
+**Microphone** adds mic mute, monitoring (sidetone), a mic preset picker, and
+ten mic EQ sliders.
+
+**Spatial** toggles realtime binaural rendering of system audio and selects the
+target layout (7.1 or 7.1.4).
 
 slider drags are coalesced and written 250ms after you stop moving, since each
 write is three bracketed frames at 30ms apiece.
 
 no `.app` bundle. `NSApplicationActivationPolicyAccessory` keeps it out of the
-dock, `NSMenuItem.sectionHeaderWithTitle` draws section headers the way the
+dock, `NSMenuItem.sectionHeaderWithTitle` draws the section headers the way the
 system does, and the icon is the `headphones` SF Symbol as a template image so
 it tracks light, dark and highlight states.
 
-it does everything `occam watch` does, so `occam agent install` (or
-`brew services start occam`) runs this and starts it at login. `KeepAlive` is
-deliberately off: quitting from the menu should quit.
+it does everything `occam watch` does, so `occam agent install` runs this and
+starts it at login. `KeepAlive` is deliberately off: quitting from the menu
+should quit.
 
 slot names come from your profile, so rename them there and both the menu and
 the picker follow:
@@ -125,22 +116,6 @@ the picker follow:
 razer's own names live in a cloud eq library keyed by `cloudEqId` and are not
 available offline, so a fresh `occam save` seeds `EQ 1` through `EQ 9` for you
 to edit. `save` never overwrites a name you have set.
-
-## cli
-
-```
-occam profile                         # inspect all 9 onboard slots
-occam eq --bands "2,2,0,0,1,-1,-1,3,3,3" --slot 3
-occam eq --preset "Valorant" --slot 1
-occam get battery                     # 87%
-occam get anc                         # 01 07
-occam presets valorant                # search built-in cloud curves
-occam probe --open                    # inspect HID interfaces and open device
-occam listen                          # stream raw HID input reports
-```
-
-readers available for `occam get`: `battery`, `charging`, `serial`, `firmware`,
-`anc`, `mic`, `balance`, `led`, `poweroff`, `micpreset`, `hyperspeed`, `sidetone`.
 
 ## persistence
 
@@ -167,6 +142,58 @@ active = 3
   name = "game"
   bands = [-2, -1, -1, -2, 3, 3, 0, 1, 2, 1]
 ```
+
+## the console
+
+reverse engineering a HID protocol wants a REPL that holds the device open
+between pokes. that is [glass](https://github.com/dappermint/glass):
+
+```
+$ occam console &
+console up
+  socket         /tmp/occam.sock
+  device         1532:0577
+  attach: nc -U /tmp/occam.sock
+
+$ nc -U /tmp/occam.sock
+>> f := proto.Frame(0x0D, 0x95, 6,6,0,0,0,0,0,0,0,0)
+>> proto.Send(f)
+>> proto.Last
+```
+
+`dev` is the open `hid.Device`. `proto` builds, mutates and sends frames.
+nothing is cached between calls, so the device state is always the real one.
+
+## install
+
+```
+brew install dappermint/tap/occam
+brew services start occam      # menu bar app at login
+```
+
+three binaries: `occam` is the headset control and the menu bar app,
+`occam-spatial` renders a file to binaural, `occmixer` does the same to system
+audio while it plays.
+
+## build
+
+```
+just build
+just test
+```
+
+or with nix:
+
+```
+nix build
+```
+
+darwin only. it talks to IOHIDManager through cgo, no hidapi, no vendored C.
+
+no permissions needed, including from the launchd agent. that is deliberate:
+occam never calls `IOHIDManagerOpen`, which is the call that asks for the HID
+event stream and trips Input Monitoring. enumeration and device open do not
+need it.
 
 ## eq library
 
@@ -245,47 +272,6 @@ derives all seven feeds from one mid/side pair and they sum coherently. so a
 known signal goes through the chain at startup and the scale comes out of what
 it measures. loudness parity leaves peaks about 2x over full scale, which a
 soft knee rounds off rather than the clamp that used to catch them.
-
-## the console
-
-reverse engineering a HID protocol wants a REPL that holds the device open
-between pokes. that is [glass](https://github.com/dappermint/glass):
-
-```
-$ occam console &
-console up
-  socket         /tmp/occam.sock
-  device         1532:0577
-  attach: nc -U /tmp/occam.sock
-
-$ nc -U /tmp/occam.sock
->> f := proto.Frame(0x0D, 0x95, 6,6,0,0,0,0,0,0,0,0)
->> proto.Send(f)
->> proto.Last
-```
-
-`dev` is the open `hid.Device`. `proto` builds, mutates and sends frames.
-nothing is cached between calls, so the device state is always the real one.
-
-## build
-
-```
-just build
-just test
-```
-
-or with nix:
-
-```
-nix build
-```
-
-darwin only. it talks to IOHIDManager through cgo, no hidapi, no vendored C.
-
-no permissions needed, including from the launchd agent. that is deliberate:
-occam never calls `IOHIDManagerOpen`, which is the call that asks for the HID
-event stream and trips Input Monitoring. enumeration and device open do not
-need it.
 
 ## protocol
 
