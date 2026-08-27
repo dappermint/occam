@@ -159,5 +159,52 @@ func SerialNumber() *Message    { return New(GetSerialNumber, 0x00) }
 // Sidetone is the mic monitoring level, 0 to 255.
 func SetSidetone(level byte) *Message { return New(SetSidetoneVolume, 0x00, level) }
 
+// ANC reads noise cancelling status and level, two bytes.
+func ANC() *Message { return New(GetANCStatusAndLevel, 0x00) }
+
+// SetANC writes status and level back.
+func SetANC(on bool, level byte) *Message {
+	var s byte
+	if on {
+		s = 1
+	}
+	return New(SetANCStatusAndLevel, 0x00, s, level)
+}
+
+// MicStatus reads whether the mic is muted.
+func MicStatus() *Message { return New(GetMicStatus, 0x00) }
+
+// SetMicMuted mutes or unmutes the mic.
+func SetMicMuted(muted bool) *Message {
+	var v byte
+	if muted {
+		v = 1
+	}
+	return New(SetMicStatus, 0x00, v)
+}
+
+// DongleLED reads the dongle's indicator state.
+func DongleLED() *Message { return New(GetDongleLEDStatus, 0x00) }
+
+// SetDongleLED turns the dongle indicator on or off.
+func SetDongleLED(on bool) *Message {
+	var v byte
+	if on {
+		v = 1
+	}
+	return New(SetDongleLEDStatus, 0x00, v)
+}
+
+// AutoPowerOff reads the idle timeout. The device reports minutes.
+func AutoPowerOff() *Message { return New(GetAutoPowerOffStatus, 0x00) }
+
+// SetAutoPowerOff writes the idle timeout in minutes. 0 disables it.
+func SetAutoPowerOff(minutes byte) *Message {
+	return New(SetAutoPowerOffStatus, 0x00, minutes)
+}
+
+// SetGameChat writes the mix between the Game and Chat endpoints.
+func SetGameChat(balance byte) *Message { return New(SetGameChatBalance, 0x00, balance) }
+
 // GameChatBalance reads the mix between the Game and Chat endpoints.
 func GameChatBalance() *Message { return New(GetGameChatBalance, 0x00) }

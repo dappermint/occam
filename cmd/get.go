@@ -50,6 +50,41 @@ var readers = map[string]reader{
 		msg:  func(byte) *proto.Message { return proto.FirmwareVersion() },
 		show: func(m *proto.Message) string { return fmt.Sprintf("% X", m.Args) },
 	},
+	"anc": {
+		name: "anc",
+		msg:  func(byte) *proto.Message { return proto.New(proto.GetANCStatusAndLevel, 0x00) },
+		show: func(m *proto.Message) string { return fmt.Sprintf("% X", m.Args) },
+	},
+	"mic": {
+		name: "mic",
+		msg:  func(byte) *proto.Message { return proto.New(proto.GetMicStatus, 0x00) },
+		show: func(m *proto.Message) string { return fmt.Sprintf("% X", m.Args) },
+	},
+	"balance": {
+		name: "balance",
+		msg:  func(byte) *proto.Message { return proto.New(proto.GetGameChatBalance, 0x00) },
+		show: func(m *proto.Message) string { return fmt.Sprintf("% X", m.Args) },
+	},
+	"led": {
+		name: "led",
+		msg:  func(byte) *proto.Message { return proto.New(proto.GetDongleLEDStatus, 0x00) },
+		show: func(m *proto.Message) string { return fmt.Sprintf("% X", m.Args) },
+	},
+	"poweroff": {
+		name: "poweroff",
+		msg:  func(byte) *proto.Message { return proto.New(proto.GetAutoPowerOffStatus, 0x00) },
+		show: func(m *proto.Message) string { return fmt.Sprintf("% X", m.Args) },
+	},
+	"micpreset": {
+		name: "micpreset",
+		msg:  func(byte) *proto.Message { return proto.New(proto.GetMicPresetEQIndex, 0x00) },
+		show: func(m *proto.Message) string { return fmt.Sprintf("% X", m.Args) },
+	},
+	"hyperspeed": {
+		name: "hyperspeed",
+		msg:  func(byte) *proto.Message { return proto.New(proto.GetHyperSpeedMode, 0x00) },
+		show: func(m *proto.Message) string { return fmt.Sprintf("% X", m.Args) },
+	},
 	"sidetone": {
 		name: "sidetone",
 		msg:  func(byte) *proto.Message { return proto.New(proto.GetSidetoneVolume, 0x00) },

@@ -14,6 +14,8 @@ void occam_window_show(void);
 void occam_window_set_slots(const char **names, int count, int selected);
 void occam_window_set_bands(const int *values, int count);
 void occam_window_set_sidetone(int value);
+void occam_window_set_extras(int ancOn, int ancLevel, int micMuted,
+                             int balance, int ledOn, int powerOff);
 void occam_window_set_status(const char *text);
 */
 import "C"
@@ -35,7 +37,36 @@ type WindowHandlers struct {
 	OnBand     func(band, value int)
 	OnSlot     func(slot int)
 	OnSidetone func(value int)
+	OnANC      func(on bool, level int)
+	OnMic      func(muted bool)
+	OnBalance  func(value int)
+	OnLED      func(on bool)
+	OnPowerOff func(minutes int)
 	OnAction   func(tag int)
+}
+
+// Extras is everything in the window below the equalizer.
+type Extras struct {
+	ANCOn    bool
+	ANCLevel int
+	MicMuted bool
+	Balance  int
+	LEDOn    bool
+	PowerOff int
+	Sidetone int
+}
+
+// SetExtras fills those controls without firing their callbacks.
+func SetExtras(e Extras) {
+	C.occam_window_set_extras(cbool(e.ANCOn), C.int(e.ANCLevel), cbool(e.MicMuted),
+		C.int(e.Balance), cbool(e.LEDOn), C.int(e.PowerOff))
+}
+
+func cbool(b bool) C.int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 var (
@@ -154,6 +185,41 @@ func occamSlotChanged(slot C.int) {
 func occamSidetoneChanged(value C.int) {
 	if h := handlers().OnSidetone; h != nil {
 		go h(int(value))
+	}
+}
+
+//export occamANCChanged
+func occamANCChanged(on, level C.int) {
+	if h := handlers().OnANC; h != nil {
+		go h(on != 0, int(level))
+	}
+}
+
+//export occamMicChanged
+func occamMicChanged(muted C.int) {
+	if h := handlers().OnMic; h != nil {
+		go h(muted != 0)
+	}
+}
+
+//export occamBalanceChanged
+func occamBalanceChanged(value C.int) {
+	if h := handlers().OnBalance; h != nil {
+		go h(int(value))
+	}
+}
+
+//export occamLEDChanged
+func occamLEDChanged(on C.int) {
+	if h := handlers().OnLED; h != nil {
+		go h(on != 0)
+	}
+}
+
+//export occamPowerOffChanged
+func occamPowerOffChanged(minutes C.int) {
+	if h := handlers().OnPowerOff; h != nil {
+		go h(int(minutes))
 	}
 }
 

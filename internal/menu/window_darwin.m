@@ -8,6 +8,11 @@ extern void occamSlotChanged(int slot);
 extern void occamSidetoneChanged(int value);
 extern void occamAction(int tag);
 extern void occamMainCallback(void);
+extern void occamANCChanged(int on, int level);
+extern void occamMicChanged(int muted);
+extern void occamBalanceChanged(int value);
+extern void occamLEDChanged(int on);
+extern void occamPowerOffChanged(int minutes);
 
 // AppKit calls that must happen on the main thread, invoked from goroutines.
 void occam_main_async(void) {
@@ -26,6 +31,15 @@ static NSSlider          *gBand[OCCAM_BANDS];
 static NSTextField       *gBandValue[OCCAM_BANDS];
 static NSSlider          *gSidetone = nil;
 static NSTextField       *gSidetoneValue = nil;
+static NSButton          *gANC = nil;
+static NSSlider          *gANCLevel = nil;
+static NSTextField       *gANCValue = nil;
+static NSButton          *gMicMute = nil;
+static NSSlider          *gBalance = nil;
+static NSTextField       *gBalanceValue = nil;
+static NSButton          *gDongleLED = nil;
+static NSSlider          *gPowerOff = nil;
+static NSTextField       *gPowerOffValue = nil;
 static NSTextField       *gStatus = nil;
 
 // Set while Go is pushing values in, so programmatic changes do not echo back
@@ -62,6 +76,44 @@ static NSTextField *occam_label(NSString *text, CGFloat width, NSTextAlignment a
 	int value = (int)lround([(NSSlider *)sender doubleValue]);
 	gSidetoneValue.stringValue = [NSString stringWithFormat:@"%d", value];
 	occamSidetoneChanged(value);
+}
+
+- (void)ancToggled:(id)sender {
+	if (gQuiet) return;
+	occamANCChanged((int)[(NSButton *)sender state] == NSControlStateValueOn ? 1 : 0,
+	                (int)lround(gANCLevel.doubleValue));
+}
+
+- (void)ancLevelMoved:(id)sender {
+	if (gQuiet) return;
+	int level = (int)lround([(NSSlider *)sender doubleValue]);
+	gANCValue.stringValue = [NSString stringWithFormat:@"%d", level];
+	occamANCChanged(gANC.state == NSControlStateValueOn ? 1 : 0, level);
+}
+
+- (void)micToggled:(id)sender {
+	if (gQuiet) return;
+	occamMicChanged([(NSButton *)sender state] == NSControlStateValueOn ? 1 : 0);
+}
+
+- (void)balanceMoved:(id)sender {
+	if (gQuiet) return;
+	int v = (int)lround([(NSSlider *)sender doubleValue]);
+	gBalanceValue.stringValue = [NSString stringWithFormat:@"%d", v];
+	occamBalanceChanged(v);
+}
+
+- (void)ledToggled:(id)sender {
+	if (gQuiet) return;
+	occamLEDChanged([(NSButton *)sender state] == NSControlStateValueOn ? 1 : 0);
+}
+
+- (void)powerOffMoved:(id)sender {
+	if (gQuiet) return;
+	int v = (int)lround([(NSSlider *)sender doubleValue]);
+	gPowerOffValue.stringValue = v == 0 ? @"never"
+	                                    : [NSString stringWithFormat:@"%d min", v];
+	occamPowerOffChanged(v);
 }
 
 - (void)actionClicked:(id)sender {
@@ -124,6 +176,38 @@ void occam_window_build(const char **bandLabels, int minDB, int maxDB) {
 		                               target:gWinTarget action:@selector(sidetoneMoved:)];
 		gSidetoneValue = occam_label(@"0", 40, NSTextAlignmentLeft);
 		[rows addObject:occam_row(@"Sidetone", gSidetone, gSidetoneValue)];
+
+		NSBox *sep3 = [[NSBox alloc] initWithFrame:NSZeroRect];
+		sep3.boxType = NSBoxSeparator;
+		[rows addObject:sep3];
+
+		gANC = [NSButton checkboxWithTitle:@"Noise cancelling"
+		                            target:gWinTarget action:@selector(ancToggled:)];
+		gANCLevel = [NSSlider sliderWithValue:0 minValue:0 maxValue:4
+		                               target:gWinTarget action:@selector(ancLevelMoved:)];
+		gANCLevel.numberOfTickMarks = 5;
+		gANCLevel.allowsTickMarkValuesOnly = YES;
+		gANCValue = occam_label(@"0", 40, NSTextAlignmentLeft);
+		[rows addObject:gANC];
+		[rows addObject:occam_row(@"Level", gANCLevel, gANCValue)];
+
+		gMicMute = [NSButton checkboxWithTitle:@"Mute microphone"
+		                                target:gWinTarget action:@selector(micToggled:)];
+		[rows addObject:gMicMute];
+
+		gBalance = [NSSlider sliderWithValue:10 minValue:0 maxValue:20
+		                              target:gWinTarget action:@selector(balanceMoved:)];
+		gBalanceValue = occam_label(@"10", 40, NSTextAlignmentLeft);
+		[rows addObject:occam_row(@"Game/Chat", gBalance, gBalanceValue)];
+
+		gDongleLED = [NSButton checkboxWithTitle:@"Dongle indicator light"
+		                                  target:gWinTarget action:@selector(ledToggled:)];
+		[rows addObject:gDongleLED];
+
+		gPowerOff = [NSSlider sliderWithValue:15 minValue:0 maxValue:60
+		                               target:gWinTarget action:@selector(powerOffMoved:)];
+		gPowerOffValue = occam_label(@"15 min", 52, NSTextAlignmentLeft);
+		[rows addObject:occam_row(@"Sleep", gPowerOff, gPowerOffValue)];
 
 		NSButton *save = [NSButton buttonWithTitle:@"Save to Profile"
 		                                    target:gWinTarget action:@selector(actionClicked:)];
@@ -198,6 +282,24 @@ void occam_window_set_sidetone(int value) {
 		gQuiet = YES;
 		gSidetone.doubleValue = value;
 		gSidetoneValue.stringValue = [NSString stringWithFormat:@"%d", value];
+		gQuiet = NO;
+	}
+}
+
+void occam_window_set_extras(int ancOn, int ancLevel, int micMuted,
+                             int balance, int ledOn, int powerOff) {
+	@autoreleasepool {
+		gQuiet = YES;
+		gANC.state = ancOn ? NSControlStateValueOn : NSControlStateValueOff;
+		gANCLevel.doubleValue = ancLevel;
+		gANCValue.stringValue = [NSString stringWithFormat:@"%d", ancLevel];
+		gMicMute.state = micMuted ? NSControlStateValueOn : NSControlStateValueOff;
+		gBalance.doubleValue = balance;
+		gBalanceValue.stringValue = [NSString stringWithFormat:@"%d", balance];
+		gDongleLED.state = ledOn ? NSControlStateValueOn : NSControlStateValueOff;
+		gPowerOff.doubleValue = powerOff;
+		gPowerOffValue.stringValue = powerOff == 0 ? @"never"
+		                           : [NSString stringWithFormat:@"%d min", powerOff];
 		gQuiet = NO;
 	}
 }

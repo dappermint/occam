@@ -58,9 +58,19 @@ func (e *editor) load(st *state) {
 	eq := e.eq
 	e.mu.Unlock()
 
+	// One handle for the whole read: opening per setting is slow and the
+	// device NAKs more when hammered.
+	var extras menu.Extras
+	if dev, err := hid.Open(hid.Razer, hid.BlackSharkV3Pro...); err == nil {
+		extras = readExtras(dev)
+		dev.Close()
+	}
+
 	menu.RunOnMain(func() {
 		menu.SetSlots(names, slot)
 		menu.SetBands(bandsOf(eq))
+		menu.SetExtras(extras)
+		menu.SetSidetone(extras.Sidetone)
 		menu.SetStatus("")
 	})
 }
@@ -147,12 +157,60 @@ func (e *editor) selectSlotFromWindow(slot int, st *state) {
 }
 
 func (e *editor) setSidetone(value int) {
+	e.write("sidetone", proto.SetSidetone(byte(value)))
+}
+
+// write pushes one setting and reports the outcome in the status line. These
+// are all single frames, so unlike the equalizer they need no debouncing
+// beyond what the retry loop already does.
+func (e *editor) write(what string, m *proto.Message) {
 	dev, err := hid.Open(hid.Razer, hid.BlackSharkV3Pro...)
 	if err != nil {
+		menu.RunOnMain(func() { menu.SetStatus("Headset not connected") })
 		return
 	}
 	defer dev.Close()
-	_ = send(dev, proto.SetSidetone(byte(value)))
+
+	if err := send(dev, m); err != nil {
+		msg := truncate(what+": "+err.Error(), 40)
+		menu.RunOnMain(func() { menu.SetStatus(msg) })
+		return
+	}
+	menu.RunOnMain(func() { menu.SetStatus(what + " set") })
+}
+
+func (e *editor) setANC(on bool, level int) {
+	e.write("noise cancelling", proto.SetANC(on, byte(level)))
+}
+
+func (e *editor) setMic(muted bool)   { e.write("microphone", proto.SetMicMuted(muted)) }
+func (e *editor) setBalance(v int)    { e.write("game/chat", proto.SetGameChat(byte(v))) }
+func (e *editor) setLED(on bool)      { e.write("dongle light", proto.SetDongleLED(on)) }
+func (e *editor) setPowerOff(min int) { e.write("sleep timer", proto.SetAutoPowerOff(byte(min))) }
+
+// readExtras pulls everything below the equalizer. A setting the device does
+// not answer for keeps its zero value rather than failing the whole read.
+func readExtras(dev *hid.Device) menu.Extras {
+	var e menu.Extras
+	if m, err := ask(dev, proto.ANC()); err == nil && len(m.Args) >= 2 {
+		e.ANCOn, e.ANCLevel = m.Args[0] != 0, int(m.Args[1])
+	}
+	if m, err := ask(dev, proto.MicStatus()); err == nil && len(m.Args) >= 1 {
+		e.MicMuted = m.Args[0] != 0
+	}
+	if m, err := ask(dev, proto.GameChatBalance()); err == nil && len(m.Args) >= 1 {
+		e.Balance = int(m.Args[0])
+	}
+	if m, err := ask(dev, proto.DongleLED()); err == nil && len(m.Args) >= 1 {
+		e.LEDOn = m.Args[0] != 0
+	}
+	if m, err := ask(dev, proto.AutoPowerOff()); err == nil && len(m.Args) >= 1 {
+		e.PowerOff = int(m.Args[0])
+	}
+	if m, err := ask(dev, proto.New(proto.GetSidetoneVolume, 0x00)); err == nil && len(m.Args) >= 1 {
+		e.Sidetone = int(m.Args[0])
+	}
+	return e
 }
 
 // saveToProfile records what the window is showing, keeping existing names.

@@ -76,7 +76,9 @@ Quit occam
 ```
 
 **Settings…** opens a real AppKit window: a preset picker, ten sliders labelled
-with razer's own band frequencies (31Hz through 16kHz), and sidetone. slider
+with razer's own band frequencies (31Hz through 16kHz), then noise cancelling
+with a level, mic mute, game/chat balance, the dongle indicator light, a sleep
+timer and sidetone. slider
 drags are coalesced and written 250ms after you stop moving, since each write
 is three bracketed frames at 30ms apiece.
 
@@ -170,6 +172,13 @@ event stream and trips Input Monitoring. enumeration and device open do not
 need it.
 
 ## protocol
+
+four of the setters (anc, mic status, game/chat balance, auto power off) are
+not in the synapse capture. they were derived from the `set = get | 0x80` rule
+that every captured pair follows, then verified by writing each one the value
+the device already held and checking it replied success rather than not
+supported. `docs/protocol.md` §3.1.
+
 
 the dongle exposes one HID interface with four top-level collections. the
 audio DSP lives on vendor usage page `0xFF14`, report ID `0x02`, 63 payload

@@ -26,6 +26,16 @@ const (
 	GetDongleLEDStatus    byte = 0x66
 	GetRollerFunction     byte = 0x6A
 
+	// Derived, not captured. Every set/get pair in the capture satisfies
+	// set = get | 0x80 (0x15/0x95, 0x16/0x96, 0x19/0x99, 0x60/0xE0,
+	// 0x61/0xE1, 0x66/0xE6), and these four follow the same rule. Verified by
+	// writing each one its own current value and checking the device replies
+	// SUCCESS rather than NOT_SUPPORTED.
+	SetANCStatusAndLevel  byte = 0x92
+	SetAutoPowerOffStatus byte = 0xAC
+	SetMicStatus          byte = 0xD5
+	SetGameChatBalance    byte = 0xDC
+
 	SetCustomerEQBand    byte = 0x95
 	SetMicPresetEQIndex  byte = 0x96
 	SetSidetoneStatus    byte = 0x98
@@ -65,6 +75,11 @@ var commandNames = map[byte]string{
 	GetVoicePromptStatus:  "getVoicePromptStatus",
 	GetDongleLEDStatus:    "getDongleLEDStatus",
 	GetRollerFunction:     "getRollerFunction",
+
+	SetANCStatusAndLevel:  "setANCStatusAndLevel",
+	SetAutoPowerOffStatus: "setAutoPowerOffStatus",
+	SetMicStatus:          "setMicStatus",
+	SetGameChatBalance:    "setGameChatBalance",
 
 	SetCustomerEQBand:    "setCustomerEQBand",
 	SetMicPresetEQIndex:  "setMicPresetEQIndex",
