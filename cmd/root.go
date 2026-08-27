@@ -2,6 +2,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
@@ -13,13 +15,28 @@ var (
 	styleKey   = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 )
 
+// version is stamped at build time with -X. Unset builds say "dev".
+var version = "dev"
+
+func newVersion() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "print the version",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println("occam", version)
+		},
+	}
+}
+
 func newRoot() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "occam",
+		Version:       version,
 		Short:         "control a Razer BlackShark V3 Pro from macOS, without Synapse",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	root.AddCommand(newVersion())
 	root.AddCommand(newProbe())
 	root.AddCommand(newConsole())
 	root.AddCommand(newEQ())

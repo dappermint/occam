@@ -162,11 +162,10 @@ func newSave() *cobra.Command {
 					p.Active = int(pos)
 				}
 				if all || s.Order.Active {
-					name := existing[int(pos)]
-					if name == "" {
-						name = profile.DefaultNames(int(pos))
-					}
-					p.Slots = append(p.Slots, profile.FromEQ(int(pos), name, s.EQ))
+					// Only a name the user actually set. Seeding a placeholder
+					// here would shadow the library name the headset's own
+					// cloudEqId resolves to.
+					p.Slots = append(p.Slots, profile.FromEQ(int(pos), existing[int(pos)], s.EQ))
 				}
 			}
 

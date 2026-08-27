@@ -259,11 +259,7 @@ func (e *editor) saveToProfile(st *state) {
 		if i == slot {
 			curve = eq
 		}
-		name := existing[i]
-		if name == "" {
-			name = profile.DefaultNames(i)
-		}
-		p.Slots = append(p.Slots, profile.FromEQ(i, name, curve))
+		p.Slots = append(p.Slots, profile.FromEQ(i, existing[i], curve))
 	}
 
 	if err := profile.Save(e.profPath, p); err != nil {

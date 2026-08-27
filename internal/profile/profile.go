@@ -14,7 +14,10 @@ import (
 
 // Slot is one EQ slot as the profile records it.
 type Slot struct {
-	Index int    `toml:"index"`
+	Index int `toml:"index"`
+
+	// Name is an override. Left empty, occam uses Razer's own name for
+	// whichever library preset the headset says the slot holds.
 	Name  string `toml:"name,omitempty"`
 	Bands []int  `toml:"bands"`
 }
@@ -130,17 +133,6 @@ func (s Slot) EQ() (proto.EQ, error) {
 		eq[i] = int8(v)
 	}
 	return eq, nil
-}
-
-// DefaultNames seeds a fresh profile so the menu bar has something readable
-// before anyone edits the file. The first six are Synapse's own labels, read
-// off its Audio Equalizer tab; the rest scroll off the edge of that row and
-// fall back to a number.
-func DefaultNames(index int) string {
-	if index >= 0 && index < len(proto.PresetNames) {
-		return proto.PresetNames[index]
-	}
-	return fmt.Sprintf("EQ %d", index+1)
 }
 
 // FromEQ builds a slot from a wire curve.
