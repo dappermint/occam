@@ -142,6 +142,11 @@ func newGet() *cobra.Command {
 				return fmt.Errorf("device replied %s to %s", proto.StatusText(m.Status), r.name)
 			}
 
+			if proto.Unavailable(m.Args) {
+				fmt.Printf("%s %s\n", styleKey.Render(fmt.Sprintf("%-10s", r.name)),
+					styleDim.Render("unavailable, the headset is off"))
+				return nil
+			}
 			fmt.Printf("%s %s\n", styleKey.Render(fmt.Sprintf("%-10s", r.name)), styleHit.Render(r.show(m)))
 			return nil
 		},

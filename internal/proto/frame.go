@@ -195,6 +195,17 @@ func Decode(p []byte) (*Message, error) {
 	return m, nil
 }
 
+// Unavailable reports whether a reply is the device's "nothing to tell you"
+// answer: a single 0xFF. The dongle stays on the bus and keeps answering when
+// the headset is off, so every headset-backed read comes back like this rather
+// than failing.
+func Unavailable(args []byte) bool {
+	return len(args) == 1 && args[0] == 0xFF
+}
+
+// ErrHeadsetOff means the dongle answered but the headset is not powered on.
+var ErrHeadsetOff = errors.New("headset is off or out of range")
+
 // StatusText names a status byte for error messages.
 func StatusText(s byte) string {
 	switch s {

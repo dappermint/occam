@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -32,6 +33,9 @@ func newProfile() *cobra.Command {
 
 			for pos := byte(0); pos < proto.Slots; pos++ {
 				s, err := readSlot(dev, pos)
+				if errors.Is(err, proto.ErrHeadsetOff) {
+					return fmt.Errorf("%w: the dongle is connected but has nothing to report", err)
+				}
 				if err != nil {
 					fmt.Printf("  %-4d %s\n", pos, styleDim.Render(err.Error()))
 					continue
@@ -41,7 +45,8 @@ func newProfile() *cobra.Command {
 				if s.Order.Active {
 					mark = "*"
 				}
-				line := fmt.Sprintf("%s%-3d %s", mark, pos, s.EQ)
+				name, _ := proto.LibraryName(s.Order.CloudID)
+				line := fmt.Sprintf("%s%-3d %-24s %s", mark, pos, truncate(name, 24), s.EQ)
 				if s.Order.Active {
 					line = styleHit.Render(line)
 				}

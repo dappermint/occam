@@ -66,6 +66,10 @@ func ask(dev *hid.Device, m *proto.Message) (*proto.Message, error) {
 			return fmt.Errorf("reply is for %s, not %s",
 				proto.CommandName(reply.Command), proto.CommandName(m.Command))
 		}
+		// Retrying will not help: the headset has to come back first.
+		if proto.Unavailable(reply.Args) {
+			return nil
+		}
 		return nil
 	})
 	return reply, err
@@ -95,6 +99,9 @@ func readSlot(dev *hid.Device, position byte) (Slot, error) {
 	order, err := ask(dev, proto.OrderInfo(position))
 	if err != nil {
 		return s, fmt.Errorf("order info for slot %d: %w", position, err)
+	}
+	if proto.Unavailable(order.Args) {
+		return s, proto.ErrHeadsetOff
 	}
 	if s.Order, err = proto.ParseOrder(order.Args); err != nil {
 		return s, err

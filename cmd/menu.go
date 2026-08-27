@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -68,7 +69,7 @@ func (s *state) refresh() {
 		transport = hid.Transport(dev.Info.ProductID)
 	)
 
-	if m, err := ask(dev, proto.Battery()); err == nil && len(m.Args) > 0 {
+	if m, err := ask(dev, proto.Battery()); err == nil && len(m.Args) > 0 && !proto.Unavailable(m.Args) {
 		battery = int(m.Args[0])
 	} else if err != nil {
 		firstErr = err
@@ -80,7 +81,7 @@ func (s *state) refresh() {
 	for pos := byte(0); pos < proto.Slots; pos++ {
 		sl, err := readSlot(dev, pos)
 		if err != nil {
-			if firstErr == nil {
+			if firstErr == nil && !errors.Is(err, proto.ErrHeadsetOff) {
 				firstErr = err
 			}
 			break
@@ -220,9 +221,9 @@ func items(st *state, names map[int]string) []menu.Item {
 		{Title: powerLine(s), Tag: tagInert, Disabled: true},
 		menu.Section("Equalizer"),
 	}
-	for i := range s.slots {
+	for i, sl := range s.slots {
 		out = append(out, menu.Item{
-			Title:   slotName(i, names),
+			Title:   slotLabel(i, sl, names),
 			Tag:     i,
 			Checked: i == s.active,
 		})
@@ -240,11 +241,14 @@ func items(st *state, names map[int]string) []menu.Item {
 	)
 }
 
-// slotName prefers the name from the profile. Razer resolves its own names
-// from a cloud library keyed by cloudEqId and that mapping is not available
-// offline, so the fallback is a plain one-based number rather than a guess.
-func slotName(i int, names map[int]string) string {
+// slotLabel names a slot, most specific source first: a name the user put in
+// the profile, then Razer's own name for whichever library preset the headset
+// says the slot came from, then a number.
+func slotLabel(i int, sl Slot, names map[int]string) string {
 	if n := names[i]; n != "" {
+		return n
+	}
+	if n, ok := proto.LibraryName(sl.Order.CloudID); ok {
 		return n
 	}
 	return fmt.Sprintf("EQ %d", i+1)

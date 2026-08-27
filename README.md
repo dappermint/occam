@@ -171,6 +171,23 @@ occam never calls `IOHIDManagerOpen`, which is the call that asks for the HID
 event stream and trips Input Monitoring. enumeration and device open do not
 need it.
 
+## eq library
+
+razer's whole preset library is baked in, lifted from the synapse capture:
+
+```
+$ occam presets valorant
+   10  Valorant                              1,1,-1,0,2,0,4,4,4,-3
+   17  Valorant · Mako · DRX                 -1,0,1,1,-1,-1,0,0,-1,-2
+   23  Valorant · Zellsis · Sentinels        1,4,-1,4,2,3,4,4,4,-3
+
+$ occam eq --preset "CS2 · NiKo" --slot 4
+```
+
+41 presets with names, band curves and footstep scaling. the headset records
+which library entry each slot came from as `cloudEqId`, so slots get their real
+names automatically rather than being numbered.
+
 ## protocol
 
 four of the setters (anc, mic status, game/chat balance, auto power off) are

@@ -106,11 +106,15 @@ func newEQ() *cobra.Command {
 
 func resolveEQ(preset, bandSpec string) (proto.EQ, error) {
 	if bandSpec == "" {
-		eq, ok := proto.Presets[preset]
-		if !ok {
-			return proto.EQ{}, fmt.Errorf("no preset %q, have flat, game, music, movie", preset)
+		// Razer's own library first, since those are the curves the headset
+		// actually ships with.
+		if e, ok := proto.LibraryByName(preset); ok {
+			return e.Bands, nil
 		}
-		return eq, nil
+		if eq, ok := proto.Presets[preset]; ok {
+			return eq, nil
+		}
+		return proto.EQ{}, fmt.Errorf("no preset %q, try: occam presets", preset)
 	}
 
 	parts := strings.Split(bandSpec, ",")

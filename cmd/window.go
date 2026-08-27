@@ -55,7 +55,7 @@ func (e *editor) load(st *state) {
 	e.slot, e.eq = slot, s.slots[slot].EQ
 	names := make([]string, len(s.slots))
 	for i := range s.slots {
-		names[i] = slotName(i, e.names)
+		names[i] = slotLabel(i, s.slots[i], e.names)
 	}
 	eq := e.eq
 	e.mu.Unlock()

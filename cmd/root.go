@@ -26,6 +26,7 @@ func newRoot() *cobra.Command {
 	root.AddCommand(newGet())
 	root.AddCommand(newListen())
 	root.AddCommand(newProfile())
+	root.AddCommand(newPresets())
 	root.AddCommand(newApply())
 	root.AddCommand(newSave())
 	root.AddCommand(newWatch())
