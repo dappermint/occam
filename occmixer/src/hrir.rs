@@ -1,8 +1,7 @@
-// Shares the blob with the Go renderer, so a difference between the two is
-// never the data. SADIE II D1, CC BY 4.0, attribution in
-// ../../internal/spatial/hrir/LICENSE-SADIE.md.
+// SADIE II D1, CC BY 4.0, attribution and the list of changes in
+// ../hrir/LICENSE-SADIE.md.
 
-const BLOB: &[u8] = include_bytes!("../../internal/spatial/hrir/sadie48.bin");
+const BLOB: &[u8] = include_bytes!("../hrir/sadie48.bin");
 const MAGIC: &[u8; 4] = b"OCHR";
 
 pub struct Response {

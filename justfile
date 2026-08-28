@@ -20,10 +20,9 @@ default:
 sdk:
     @echo "{{ sdk }}"
 
-# build both binaries
+# build the menu bar app
 build:
     go build -o occam .
-    go build -o occam-spatial ./cmd/occam-spatial
 
 # run without building, args pass through: just run probe --open
 run *args:
@@ -61,9 +60,10 @@ dry preset='game':
 attach:
     nc -U /tmp/occam.sock
 
-# go tests
+# go and rust tests
 test:
     go test ./...
+    nix shell nixpkgs#cargo nixpkgs#rustc -c bash -c "cd occmixer && cargo test --release"
 
 # gofmt + nixfmt everything
 fmt:
@@ -91,9 +91,14 @@ nix-build:
 descriptor:
     @go run . probe --descriptor
 
-# tag a release and print the sha256 the brew formula needs
+# stamp the version everywhere it is recorded, then tag
 release version:
     @git diff --quiet || { echo "working tree is dirty"; exit 1; }
+    sd '^version = ".*"' 'version = "{{ version }}"' occmixer/Cargo.toml
+    sd 'version = "[0-9.]+";' 'version = "{{ version }}";' flake.nix
+    sd 'cmd.version=[0-9.]+' 'cmd.version={{ version }}' flake.nix
+    nix shell nixpkgs#cargo -c bash -c "cd occmixer && cargo update -p occmixer"
+    git commit -am "chore: stamp v{{ version }}"
     git tag -a v{{ version }} -m "v{{ version }}"
     @echo
     @echo "now: git push && git push --tags"
@@ -105,23 +110,6 @@ formula:
     cp Formula/occam.rb $(brew --repository)/Library/Taps/dappermint/homebrew-tap/Formula/occam.rb
     brew style --formula dappermint/tap/occam
     brew audit --formula --strict dappermint/tap/occam
-
-# render a wav to binaural, upmixing stereo first
-spatial file layout='7.1.4':
-    go run ./cmd/occam-spatial --upmix {{ layout }} {{ file }}
-
-# convert any audio to the 48k wav the measured hrirs need, then render it.
-# nixpkgs ffmpeg-full because the homebrew build has no soxr, and resampling
-# 44.1 to 48 badly undoes the point of using measured impulses.
-listen file start='0' length='180':
-    nix shell nixpkgs#ffmpeg-full -c ffmpeg -v error -y \
-        -ss {{ start }} -t {{ length }} -i {{ file }} \
-        -af "aresample=48000:resampler=soxr:precision=28:dither_method=triangular" \
-        -c:a pcm_s24le /tmp/occam-listen-src.wav
-    go run ./cmd/occam-spatial --upmix 7.1.4 -o /tmp/occam-listen-binaural.wav /tmp/occam-listen-src.wav
-    @echo
-    @echo "reference: /tmp/occam-listen-src.wav"
-    @echo "binaural:  /tmp/occam-listen-binaural.wav"
 
 # realtime binaural: tap system audio, render it, play it to the headset
 mix frames='128':
@@ -146,5 +134,5 @@ hrir:
 
 # remove build outputs
 clean:
-    rm -f occam occam-spatial
+    rm -f occam
     rm -rf result

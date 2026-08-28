@@ -35,6 +35,7 @@
             ldflags = [
               "-s"
               "-w"
+              "-X github.com/dappermint/occam/cmd.version=0.2.0"
             ];
             meta = {
               description = "native macOS control of a Razer BlackShark V3 Pro, without Synapse";

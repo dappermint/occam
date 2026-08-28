@@ -161,9 +161,8 @@ brew install dappermint/tap/occam
 brew services start occam      # menu bar app at login
 ```
 
-three binaries: `occam` is the headset control and the menu bar app,
-`occam-spatial` renders a file to binaural, `occmixer` does the same to system
-audio while it plays.
+two binaries: `occam` is the headset control and the menu bar app, `occmixer`
+renders system audio to binaural while it plays.
 
 ## build
 
@@ -205,43 +204,22 @@ names automatically rather than being numbered.
 ## spatial audio
 
 ```
-occam-spatial --upmix 7.1.4 track.wav
+just mix             # or: occmixer --frames 128
 ```
 
-a second binary, sharing no code with the hid tool. it renders multichannel
-audio to a binaural stereo pair, and upmixes stereo first when there is
-nothing multichannel to start from.
+a second binary, in rust, sharing no code with the hid tool. it renders system
+audio to binaural as it plays, and can be switched on and off from the Spatial
+tab in the settings window.
 
-that upmix is the point. the v3 pro has no spatial hardware at all, both its
-endpoints are stereo and thx is a windows host-side driver, and almost nothing
-on macos emits twelve discrete channels anyway. so a layout gets synthesised
-from what you actually listen to, then rendered through a head.
+the v3 pro has no spatial hardware at all: both its endpoints are stereo and
+thx is a windows host-side driver. and almost nothing on macos emits discrete
+multichannel anyway, so a layout gets synthesised from the stereo you actually
+listen to, then rendered through a head.
 
 the head is real: **SADIE II subject D1**, a neumann ku100 dummy head, 48 khz,
 256 taps, CC BY 4.0. only the thirteen directions the layouts use are embedded,
 26 kb, each one an exact measured position rather than an interpolation. see
-`internal/spatial/hrir/LICENSE-SADIE.md`.
-
-it streams, so a whole album costs about 5 mb of memory rather than gigabytes,
-and runs around 9x realtime.
-
-input has to be a 48 khz wav, since that is what the impulses were measured at
-and resampling a 256-tap impulse smears the timing that carries localisation.
-`just listen <file>` converts anything to that with soxr and renders it, using
-nixpkgs `ffmpeg-full` because the homebrew build ships without soxr.
-
-`--model synthetic` swaps in a parametric head built from geometry alone, which
-needs no data and works at any sample rate. it sounds worse. it exists so there
-is always something that runs.
-
-## realtime
-
-```
-just mix             # or: occmixer --frames 128
-```
-
-a third binary, in rust, rendering system audio to binaural as it plays. can
-also be switched on and off from the Spatial tab in the settings window.
+`occmixer/hrir/LICENSE-SADIE.md`.
 
 no virtual audio device and no blackhole: a coreaudio process tap captures
 system output, and one aggregate device carries that tap as its input and the
@@ -258,10 +236,10 @@ mutes what it captures, so one that excludes nothing mutes our own output too.
 
 output level is measured, not assumed. dividing by the square root of the
 speaker count is the obvious guess and it is 7 db too quiet, because the upmix
-derives all seven feeds from one mid/side pair and they sum coherently. so a
-known signal goes through the chain at startup and the scale comes out of what
-it measures. loudness parity leaves peaks about 2x over full scale, which a
-soft knee rounds off rather than the clamp that used to catch them.
+derives every feed from one mid/side pair and they sum coherently. so a known
+signal goes through the chain at startup and the scale comes out of what it
+measures. loudness parity leaves peaks about 2x over full scale, which a soft
+knee rounds off rather than the clamp that used to catch them.
 
 ## protocol
 

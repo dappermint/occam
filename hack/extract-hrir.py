@@ -3,7 +3,7 @@
 
     uv run --with h5py python3 hack/extract-hrir.py D1_48K_24bit_256tap_FIR_SOFA.sofa
 
-Writes internal/spatial/hrir/sadie48.bin. Every direction should report 0.00
+Writes occmixer/hrir/sadie48.bin. Every direction should report 0.00
 degrees of error; anything else means the layouts gained a speaker angle the
 measurement grid does not contain.
 """
@@ -14,13 +14,13 @@ import sys
 import h5py
 import numpy as np
 
-# Clockwise-positive azimuth, matching spatial.Speaker. SADIE is
+# Clockwise-positive azimuth, matching dsp::Speaker. SADIE is
 # counter-clockwise, so it is negated on the way in.
 WANTED = [
     (0, 0), (-30, 0), (30, 0), (-90, 0), (90, 0), (-110, 0), (110, 0),
     (-150, 0), (150, 0), (-45, 45), (45, 45), (-135, 45), (135, 45),
 ]
-OUT = "internal/spatial/hrir/sadie48.bin"
+OUT = "occmixer/hrir/sadie48.bin"
 
 
 def unit(az, el):

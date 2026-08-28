@@ -25,10 +25,6 @@ class Occam < Formula
     # output is pinned so the binary name never follows the formula name.
     system "go", "build", *std_go_args(output:  bin/"occam",
                                        ldflags: "-X github.com/dappermint/occam/cmd.version=#{version}")
-    system "go", "build", *std_go_args(output:  bin/"occam-spatial",
-                                       ldflags: "-X main.version=#{version}"),
-           "./cmd/occam-spatial"
-
     cd "occmixer" do
       system "cargo", "install", *std_cargo_args
     end
@@ -57,9 +53,8 @@ class Occam < Formula
       Save the headset's current settings so they survive a reconnect:
         occam save --all
 
-      Two more binaries come with it. occam-spatial renders a file to
-      binaural; occmixer does the same to system audio as it plays, and the
-      Spatial tab of the settings window turns it on and off.
+      occmixer comes with it. It renders system audio to binaural as it
+      plays, and the Spatial tab of the settings window turns it on and off.
     EOS
   end
 
@@ -73,8 +68,7 @@ class Occam < Formula
     assert_match "setCustomerEQBand",
                  shell_output("#{bin}/occam eq --preset Game --slot 0 --dry-run")
 
-    # Both renderers answer for themselves without a device attached.
-    assert_match "binaural", shell_output("#{bin}/occam-spatial --help")
+    # The renderer answers for itself without a device attached.
     assert_match "binaural", shell_output("#{bin}/occmixer --help")
   end
 end
