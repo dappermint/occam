@@ -3,9 +3,14 @@
 
     uv run --with h5py python3 hack/extract-hrir.py D1_48K_24bit_256tap_FIR_SOFA.sofa
 
-Writes occmixer/hrir/sadie48.bin. Every direction should report 0.00
-degrees of error; anything else means the layouts gained a speaker angle the
-measurement grid does not contain.
+Writes occmixer/hrir/sadie48.bin. Every direction should report 0.00 degrees of
+error; anything else means the layouts gained a speaker angle the measurement
+grid does not contain.
+
+Only the left hemisphere is read. The right is its mirror, because a KU100 is
+symmetric and the measurement's own left/right difference is error: it lands as
+a timing skew of a sample or two, which is enough to pull the whole stage off
+centre.
 """
 import math
 import struct
@@ -17,8 +22,7 @@ import numpy as np
 # Clockwise-positive azimuth, matching dsp::Speaker. SADIE is
 # counter-clockwise, so it is negated on the way in.
 WANTED = [
-    (0, 0), (-30, 0), (30, 0), (-90, 0), (90, 0), (-110, 0), (110, 0),
-    (-150, 0), (150, 0), (-45, 45), (45, 45), (-135, 45), (135, 45),
+    (0, 0), (-30, 0), (-90, 0), (-110, 0), (-150, 0), (-45, 45), (-135, 45),
 ]
 OUT = "occmixer/hrir/sadie48.bin"
 
@@ -44,7 +48,13 @@ def main(path):
         err = math.degrees(math.acos(min(1.0, max(-1.0, dots[i]))))
         print("  %+7.1f az %+6.1f el -> %+7.2f %+6.2f  off by %.2f deg"
               % (az, el, pos[i][0], pos[i][1], err))
-        records.append((az, el, ir[i, 0].astype(np.float32), ir[i, 1].astype(np.float32)))
+        left = ir[i, 0].astype(np.float32)
+        right = ir[i, 1].astype(np.float32)
+        if az == 0:
+            right = left
+        records.append((az, el, left, right))
+        if az != 0:
+            records.append((-az, el, right, left))
 
     with open(OUT, "wb") as out:
         out.write(b"OCHR")

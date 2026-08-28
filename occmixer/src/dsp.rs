@@ -1,5 +1,4 @@
-// Ported from internal/spatial. Runs on the render thread, so nothing here
-// allocates after construction.
+// Runs on the render thread, so nothing here allocates after construction.
 
 use crate::hrir::{Response, Set};
 
@@ -31,27 +30,6 @@ pub const SURROUND_714: [Speaker; 12] = [
     spk_up(-45.0, 45.0), spk_up(45.0, 45.0),
     spk_up(-135.0, 45.0), spk_up(135.0, 45.0),
 ];
-
-#[derive(Clone, Copy, Default)]
-struct OnePole {
-    a: f32,
-    prev: f32,
-}
-
-impl OnePole {
-    fn new(cutoff: f32, rate: f32) -> Self {
-        if cutoff >= rate / 2.0 {
-            return Self { a: 1.0, prev: 0.0 };
-        }
-        Self { a: 1.0 - (-2.0 * std::f32::consts::PI * cutoff / rate).exp(), prev: 0.0 }
-    }
-
-    #[inline]
-    fn process(&mut self, x: f32) -> f32 {
-        self.prev += self.a * (x - self.prev);
-        self.prev
-    }
-}
 
 // Decorrelates, so several outputs carrying the same signal stop fusing into
 // one phantom source.
@@ -134,15 +112,10 @@ pub struct Pipeline {
     speakers: Vec<Speaker>,
     firs: Vec<Option<Fir>>,
     decor: Vec<Option<Allpass>>,
-    lfe1: OnePole,
-    lfe2: OnePole,
     norm: f32,
     peak: f32,
-    lfe_gain: f32,
     gain: f32,
 }
-
-const LFE_CUTOFF: f32 = 120.0;
 
 impl Pipeline {
     pub fn new(speakers: &[Speaker], set: &Set, rate: f32, gain: f32) -> Result<Self, String> {
@@ -155,7 +128,9 @@ impl Pipeline {
 
         let mut firs = Vec::with_capacity(speakers.len());
         let mut decor = Vec::with_capacity(speakers.len());
-        let mut seed = 0usize;
+        // Keyed by mirrored pair, so Lrs and Rrs share a delay. Different
+        // delays across the median plane drag the image sideways.
+        let mut pairs: Vec<(i32, i32)> = Vec::new();
 
         for s in speakers {
             if s.lfe {
@@ -174,7 +149,14 @@ impl Pipeline {
             decor.push(if is_frontal(s) {
                 None
             } else {
-                seed += 1;
+                let key = (s.azimuth.abs() as i32, s.elevation as i32);
+                let seed = match pairs.iter().position(|k| *k == key) {
+                    Some(i) => i + 1,
+                    None => {
+                        pairs.push(key);
+                        pairs.len()
+                    }
+                };
                 Some(Allpass::new(rate, seed))
             });
         }
@@ -183,11 +165,8 @@ impl Pipeline {
             speakers: speakers.to_vec(),
             firs,
             decor,
-            lfe1: OnePole::new(LFE_CUTOFF, rate),
-            lfe2: OnePole::new(LFE_CUTOFF, rate),
             norm: 1.0,
             peak: 1.0,
-            lfe_gain: 0.7,
             gain,
         };
         let (norm, peak) = pipe.measure();
@@ -232,8 +211,6 @@ impl Pipeline {
         for d in self.decor.iter_mut().flatten() {
             d.reset();
         }
-        self.lfe1.prev = 0.0;
-        self.lfe2.prev = 0.0;
 
         if sum_out <= 0.0 || peak_in <= 0.0 {
             return (1.0, 1.0);
@@ -256,29 +233,25 @@ impl Pipeline {
 
     #[inline]
     pub fn frame(&mut self, l: f32, r: f32) -> (f32, f32) {
-        let mid = (l + r) * 0.5;
         let side = (l - r) * 0.5;
-        let lfe = self.lfe2.process(self.lfe1.process(mid));
 
         let mut out_l = 0.0f32;
         let mut out_r = 0.0f32;
 
         for (i, s) in self.speakers.iter().enumerate() {
-            if s.lfe {
-                let v = lfe * 0.8 * self.lfe_gain;
-                out_l += v;
-                out_r += v;
+            // Centre and LFE take nothing. Anything the front pair already
+            // carries would reach each ear a second time from another
+            // direction: in phase below the head shadow, combing above it.
+            if s.lfe || (s.azimuth == 0.0 && s.elevation == 0.0) {
                 continue;
             }
 
-            let mut v = if s.azimuth == 0.0 && s.elevation == 0.0 {
-                mid * 0.707
-            } else if s.elevation > 0.0 {
+            let mut v = if s.elevation > 0.0 {
                 signed(side * 0.35, s.azimuth)
             } else if s.azimuth.abs() > 90.0 {
                 signed(side * 0.5, s.azimuth)
             } else if s.azimuth.abs() == 90.0 {
-                signed(side * 0.45 + mid * 0.15, s.azimuth)
+                signed(side * 0.45, s.azimuth)
             } else if s.azimuth < 0.0 {
                 l
             } else {
@@ -357,6 +330,63 @@ mod tests {
             assert!(y >= prev, "not monotonic at {x}");
             assert!(y - prev < 0.002, "jump at {x}: {prev} -> {y}");
             prev = y;
+        }
+    }
+
+    const RATE: f32 = 48000.0;
+    const N: usize = 8192;
+
+    fn pipeline(speakers: &[Speaker]) -> Pipeline {
+        let set = Set::load().expect("hrir blob");
+        Pipeline::new(speakers, &set, RATE, 1.0).expect("pipeline")
+    }
+
+    fn tone(n: usize, f: f32) -> Vec<f32> {
+        (0..n)
+            .map(|i| 0.5 * (2.0 * std::f32::consts::PI * f * i as f32 / RATE).sin())
+            .collect()
+    }
+
+    #[test]
+    fn centre_stays_centred() {
+        let mono = tone(N, 440.0);
+        for speakers in [&SURROUND_71[..], &SURROUND_714[..]] {
+            let mut p = pipeline(speakers);
+            for i in 0..N {
+                let (l, r) = p.frame(mono[i], mono[i]);
+                assert!(i < 1024 || (l - r).abs() < 1e-6, "sample {i}: {l} left, {r} right");
+            }
+        }
+    }
+
+    #[test]
+    fn swapping_inputs_swaps_outputs() {
+        let a = tone(N, 440.0);
+        let b = tone(N, 661.0);
+        for speakers in [&SURROUND_71[..], &SURROUND_714[..]] {
+            let mut p = pipeline(speakers);
+            let mut q = pipeline(speakers);
+            for i in 0..N {
+                let (l, _) = p.frame(a[i], b[i]);
+                let (_, r) = q.frame(b[i], a[i]);
+                assert!(i < 1024 || (l - r).abs() < 1e-6, "sample {i}: {l} vs mirrored {r}");
+            }
+        }
+    }
+
+    #[test]
+    fn centred_content_is_not_coloured() {
+        let mut bare = pipeline(&[spk(-30.0), spk(30.0)]);
+        let mut full = pipeline(&SURROUND_71[..]);
+        let (bn, fnorm) = (bare.norm(), full.norm());
+
+        let mono = tone(N, 440.0);
+        for i in 0..N {
+            let (bl, _) = bare.frame(mono[i], mono[i]);
+            let (fl, _) = full.frame(mono[i], mono[i]);
+            assert!(
+                i < 1024 || (bl / bn - fl / fnorm).abs() < 1e-6,
+                "sample {i}: front pair {} vs 7.1 {}", bl / bn, fl / fnorm);
         }
     }
 }

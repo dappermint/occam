@@ -218,8 +218,17 @@ listen to, then rendered through a head.
 
 the head is real: **SADIE II subject D1**, a neumann ku100 dummy head, 48 khz,
 256 taps, CC BY 4.0. only the thirteen directions the layouts use are embedded,
-26 kb, each one an exact measured position rather than an interpolation. see
-`occmixer/hrir/LICENSE-SADIE.md`.
+26 kb, each one an exact measured position rather than an interpolation. the
+set is mirrored about the median plane before use, since a ku100 is symmetric
+and the measurement's own left/right difference lands as a timing skew that
+pulls the whole stage sideways. see `occmixer/hrir/LICENSE-SADIE.md`.
+
+the front pair carries the stereo untouched. only the difference between the
+channels is spread, into the side, rear and height speakers, each pair through
+its own decorrelator. nothing shared between the channels is duplicated
+anywhere, which is what keeps the tone identical to the input: send it to the
+centre and to a synthesised subwoofer as well and it reaches each ear from four
+directions at once, adding in phase below the head shadow and combing above it.
 
 no virtual audio device and no blackhole: a coreaudio process tap captures
 system output, and one aggregate device carries that tap as its input and the
