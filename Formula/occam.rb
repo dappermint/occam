@@ -32,6 +32,21 @@ class Occam < Formula
     doc.install "README.md"
   end
 
+  # `brew cleanup` deletes the previous Cellar directory on every upgrade, and
+  # launchd pins a bootstrapped job to the inode it resolved rather than to the
+  # opt symlink the plist names. The job then dies at launch with
+  # OS_REASON_CODESIGNING, not ENOENT, since the replacement binary fails the
+  # launch constraint check. Re-bootstrapping is the only fix, and `repair` is
+  # a no-op when no agent was ever installed.
+  #
+  # Never fatal: post_install is sandboxed, so launchctl can be denied here.
+  # A stale agent is worth a warning, not a failed upgrade.
+  def post_install
+    system bin/"occam", "agent", "repair"
+  rescue => e
+    opoo "could not reload the occam agent (#{e.message}); run `occam agent repair`"
+  end
+
   # Runs the menu bar app, which also re-applies the saved profile whenever the
   # dongle reconnects. keep_alive is deliberately false: quitting from the menu
   # should quit rather than be resurrected a second later.

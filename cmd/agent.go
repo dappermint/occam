@@ -70,12 +70,44 @@ func agentPaths() (plist, logDir string, err error) {
 		filepath.Join(home, "Library", "Logs", "occam"), nil
 }
 
+func agentDomain() string { return fmt.Sprintf("gui/%d", os.Getuid()) }
+
+// loadAgent replaces whatever launchd currently holds for the label with the
+// plist on disk.
+//
+// The bootout is what makes an upgrade work. The plist names the stable
+// /opt/homebrew/bin symlink, but launchd resolves it once at bootstrap and
+// pins the job to that Cellar inode, so `brew cleanup` deleting the old
+// version leaves the loaded job pointing at a binary that no longer exists.
+// It does not fail with ENOENT: the replacement fails AMFI's launch
+// constraint check instead, and the job dies in 7ms with
+// OS_REASON_CODESIGNING until something re-bootstraps it.
+//
+// Bootout fails when nothing is loaded, which is fine. It is not instant
+// though, and bootstrapping over a job still going down fails with
+// "Bootstrap failed: 5: Input/output error", so retry briefly.
+func loadAgent(plistPath string) error {
+	domain := agentDomain()
+	_ = exec.Command("launchctl", "bootout", domain+"/"+agentLabel).Run()
+
+	var out []byte
+	var err error
+	for attempt := 1; attempt <= 5; attempt++ {
+		out, err = exec.Command("launchctl", "bootstrap", domain, plistPath).CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("launchctl bootstrap: %w: %s", err, strings.TrimSpace(string(out)))
+}
+
 func newAgent() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "agent",
 		Short: "manage the launchd agent that re-applies the profile on attach",
 	}
-	c.AddCommand(newAgentInstall(), newAgentUninstall(), newAgentStatus())
+	c.AddCommand(newAgentInstall(), newAgentUninstall(), newAgentStatus(), newAgentRepair())
 	return c
 }
 
@@ -131,23 +163,9 @@ func newAgentInstall() *cobra.Command {
 				return err
 			}
 
-			// bootout first so a reinstall replaces cleanly. It fails when
-			// nothing is loaded, which is fine. Unloading is not instant
-			// though, and bootstrapping over a job still going down fails with
-			// "Bootstrap failed: 5: Input/output error", so retry briefly.
-			domain := fmt.Sprintf("gui/%d", os.Getuid())
-			_ = exec.Command("launchctl", "bootout", domain+"/"+agentLabel).Run()
-
-			var out []byte
-			for attempt := 1; attempt <= 5; attempt++ {
-				out, err = exec.Command("launchctl", "bootstrap", domain, plistPath).CombinedOutput()
-				if err == nil {
-					break
-				}
-				time.Sleep(500 * time.Millisecond)
-			}
-			if err != nil {
-				return fmt.Errorf("launchctl bootstrap: %w: %s", err, strings.TrimSpace(string(out)))
+			// bootout first so a reinstall replaces cleanly.
+			if err := loadAgent(plistPath); err != nil {
+				return err
 			}
 
 			fmt.Println(styleTitle.Render("agent installed"))
@@ -206,6 +224,35 @@ func newAgentStatus() *cobra.Command {
 			fmt.Printf("  %s %s\n", styleKey.Render(fmt.Sprintf("%-9s", "plist")), state)
 			fmt.Printf("  %s %s\n", styleKey.Render(fmt.Sprintf("%-9s", "loaded")), loaded)
 			fmt.Printf("  %s %s\n", styleKey.Render(fmt.Sprintf("%-9s", "logs")), logDir)
+			return nil
+		},
+	}
+}
+
+// newAgentRepair re-bootstraps an agent that is already installed, so an
+// upgrade can hand launchd the new binary. It never writes a plist: installing
+// the agent stays an explicit choice, and this has to be safe to run from a
+// package manager on a machine that never wanted one.
+func newAgentRepair() *cobra.Command {
+	return &cobra.Command{
+		Use:   "repair",
+		Short: "re-load an already installed agent, for after an upgrade",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plistPath, _, err := agentPaths()
+			if err != nil {
+				return err
+			}
+			if _, err := os.Stat(plistPath); err != nil {
+				if os.IsNotExist(err) {
+					fmt.Println(styleDim.Render("no agent installed, nothing to repair"))
+					return nil
+				}
+				return err
+			}
+			if err := loadAgent(plistPath); err != nil {
+				return err
+			}
+			fmt.Println(styleTitle.Render("agent reloaded"))
 			return nil
 		},
 	}
