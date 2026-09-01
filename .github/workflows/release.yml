@@ -1,0 +1,109 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+
+permissions:
+  contents: write
+
+jobs:
+  # The tag is the trigger, but a tag that fails CI should not become a
+  # release, so the gates run again here rather than being assumed from the
+  # branch build.
+  verify:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go vet ./...
+      - run: go test ./...
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --release
+        working-directory: occmixer
+
+  release:
+    needs: verify
+    runs-on: macos-15
+    outputs:
+      sha256: ${{ steps.tarball.outputs.sha256 }}
+      version: ${{ steps.tarball.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # GitHub generates the source tarball for the tag, and that is what the
+      # formula points at. Hash the served artifact rather than a locally
+      # rebuilt one, since only the served bytes are what brew will verify.
+      - name: hash the tag tarball
+        id: tarball
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
+          for attempt in 1 2 3 4 5; do
+            if curl -fsSL --retry 3 "$url" -o tarball.tar.gz; then
+              break
+            fi
+            echo "tarball not published yet, retrying"
+            sleep 10
+          done
+          sha256=$(shasum -a 256 tarball.tar.gz | cut -d' ' -f1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+
+      - name: create the github release
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # The tap is a separate repository, so this needs a token that can write to
+  # it. TAP_TOKEN is a fine-grained PAT with contents:write on
+  # dappermint/homebrew-tap; the default GITHUB_TOKEN cannot reach outside
+  # this repo.
+  formula:
+    needs: release
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: dappermint/homebrew-tap
+          token: ${{ secrets.TAP_TOKEN }}
+          path: tap
+
+      - uses: actions/checkout@v4
+        with:
+          path: occam
+
+      - name: bump the formula
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+          SHA256: ${{ needs.release.outputs.sha256 }}
+        run: |
+          # The formula in the occam repo is the source of truth: it carries
+          # the build logic, and only url and sha256 are tag-dependent.
+          sed -E \
+            -e "s|archive/refs/tags/v[0-9.]+\.tar\.gz|archive/refs/tags/v${VERSION}.tar.gz|" \
+            -e "s|^  sha256 \".*\"|  sha256 \"${SHA256}\"|" \
+            occam/Formula/occam.rb > tap/Formula/occam.rb
+
+          grep -q "v${VERSION}.tar.gz" tap/Formula/occam.rb
+          grep -q "${SHA256}" tap/Formula/occam.rb
+
+      - name: commit
+        working-directory: tap
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          if git diff --quiet; then
+            echo "formula already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(occam): bump to v${VERSION}"
+          git push

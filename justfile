@@ -102,8 +102,7 @@ release version:
     git tag -a v{{ version }} -m "v{{ version }}"
     @echo
     @echo "now: git push && git push --tags"
-    @echo "then set url and sha256 in Formula/occam.rb from the github tarball:"
-    @echo "  curl -sL https://github.com/dappermint/occam/archive/refs/tags/v{{ version }}.tar.gz | shasum -a 256"
+    @echo "the release workflow tags, hashes the tarball and bumps the tap"
 
 # check the formula the way homebrew will
 formula:

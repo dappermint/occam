@@ -1,0 +1,69 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # macos-15 is arm64, which is the only architecture this ships to. The cgo
+  # here is against IOKit and Cocoa, so there is no cross build and no Linux
+  # job to add.
+  go:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build ./...
+
+  rust:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: occmixer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: occmixer
+
+      - run: cargo clippy --release -- -D warnings
+      - run: cargo test --release
+
+  formula:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: brew style and audit
+        run: |
+          tap=$(brew --repository)/Library/Taps/dappermint/homebrew-tap
+          mkdir -p "$tap/Formula"
+          git -C "$tap" init -q 2>/dev/null || true
+          cp Formula/occam.rb "$tap/Formula/occam.rb"
+          brew style --formula dappermint/tap/occam
+          brew audit --formula --strict dappermint/tap/occam
