@@ -17,7 +17,8 @@ class Occam < Formula
     # The macOS 26+ appearance, Liquid Glass included, is gated on the SDK a
     # binary links against rather than on anything the code does, so build
     # against the newest one present instead of whatever is on the path.
-    if (sdk = MacOS.sdk_path_if_needed || MacOS.sdk&.path)
+    sdk = MacOS.sdk_path
+    if sdk.present?
       ENV["CGO_CFLAGS"] = "-isysroot #{sdk} -mmacosx-version-min=14.0"
       ENV["CGO_LDFLAGS"] = "-isysroot #{sdk} -mmacosx-version-min=14.0"
     end
