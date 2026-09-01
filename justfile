@@ -12,6 +12,10 @@ sdk := ```
 export CGO_CFLAGS := "-isysroot " + sdk + " -mmacosx-version-min=14.0"
 export CGO_LDFLAGS := "-isysroot " + sdk + " -mmacosx-version-min=14.0"
 
+# What the in-repo formula's sha256 holds between releases. Deliberately not a
+# real hash: brew refuses it loudly rather than installing wrong bytes.
+placeholder_sha := "0000000000000000000000000000000000000000000000000000000000000000"
+
 # list recipes
 default:
     @just --list
@@ -91,12 +95,19 @@ nix-build:
 descriptor:
     @go run . probe --descriptor
 
+# the formula's sha256 cannot be stamped here: it hashes the tarball github
+# generates for the tag, which does not exist until the tag is pushed. the
+# release workflow fills it in on the way to the tap, so the placeholder is
+# only ever what the in-repo copy carries between releases.
+#
 # stamp the version everywhere it is recorded, then tag
 release version:
     @git diff --quiet || { echo "working tree is dirty"; exit 1; }
     sd '^version = ".*"' 'version = "{{ version }}"' occmixer/Cargo.toml
     sd 'version = "[0-9.]+";' 'version = "{{ version }}";' flake.nix
     sd 'cmd.version=[0-9.]+' 'cmd.version={{ version }}' flake.nix
+    sd 'archive/refs/tags/v[0-9.]+\.tar\.gz' 'archive/refs/tags/v{{ version }}.tar.gz' Formula/occam.rb
+    sd '^  sha256 ".*"' '  sha256 "{{ placeholder_sha }}"' Formula/occam.rb
     nix shell nixpkgs#cargo -c bash -c "cd occmixer && cargo update -p occmixer"
     git commit -am "chore: stamp v{{ version }}"
     git tag -a v{{ version }} -m "v{{ version }}"
