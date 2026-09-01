@@ -234,6 +234,7 @@ func newMenu() *cobra.Command {
 				OnLED:        ed.setLED,
 				OnPowerOff:   ed.setPowerOff,
 				OnLowLatency: ed.setLowLatency,
+				OnTHX:        ed.setTHX,
 				OnAction: func(tag int) {
 					switch tag {
 					case menu.ActionSave:

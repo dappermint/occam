@@ -24,6 +24,7 @@ void occam_window_set_extras(int ancMode, int ancLevel, int ancLevelActive,
                              int sleepIndex, int lowLatency);
 void occam_window_set_mix(const char **layouts, int count, int selected,
                           int on, int enabled, const char *status);
+void occam_window_set_thx(int on);
 void occam_window_set_anc_level_active(int active);
 void occam_window_set_status(const char *text);
 */
@@ -56,6 +57,7 @@ type WindowHandlers struct {
 	OnLED        func(mode int)
 	OnPowerOff   func(index int)
 	OnLowLatency func(on bool)
+	OnTHX        func(on bool)
 	OnAction     func(tag int)
 }
 
@@ -182,6 +184,11 @@ func SetMix(m Mix) {
 	defer C.free(unsafe.Pointer(status))
 	C.occam_window_set_mix(c, C.int(len(m.Layouts)), C.int(m.Selected),
 		cbool(m.On), cbool(m.Enabled), status)
+}
+
+// SetTHX sets the THX Spatial Audio toggle without firing the change callback.
+func SetTHX(on bool) {
+	C.occam_window_set_thx(cbool(on))
 }
 
 // SetANCLevelActive greys the level out on its own, for when the mode changes
@@ -340,6 +347,13 @@ func occamPowerOffChanged(index C.int) {
 //export occamLowLatencyChanged
 func occamLowLatencyChanged(on C.int) {
 	if h := handlers().OnLowLatency; h != nil {
+		go h(on != 0)
+	}
+}
+
+//export occamTHXChanged
+func occamTHXChanged(on C.int) {
+	if h := handlers().OnTHX; h != nil {
 		go h(on != 0)
 	}
 }
