@@ -157,18 +157,6 @@ func ParseOrder(args []byte) (Order, error) {
 // SelectPreset switches the active onboard curve.
 func SelectPreset(slot byte) *Message { return New(SetSpeakerPresetEQ, 0x00, slot) }
 
-// SetTHX toggles THX Spatial Audio on the device. The command follows the
-// openrazer convention (argc=2, [mode, 0]); mode 0=stereo, 1=THX. The device
-// acknowledges it with status SUCCESS, though whether it does anything
-// audibly is still being verified.
-func SetTHX(on bool) *Message {
-	var mode byte
-	if on {
-		mode = 1
-	}
-	return New(SetSpeakerPresetEQ, 0x00, mode, 0x00)
-}
-
 // EQUpdateStart and EQUpdateStop bracket a curve write. Synapse sends the
 // start before touching bands and the stop afterwards; the captured tuple is
 // [225, 0, 1], so the argument is a single flag.

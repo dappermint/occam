@@ -16,7 +16,6 @@ extern void occamBalanceChanged(int value);
 extern void occamLEDChanged(int mode);
 extern void occamPowerOffChanged(int index);
 extern void occamLowLatencyChanged(int on);
-extern void occamTHXChanged(int on);
 extern void occamAction(int tag);
 extern void occamMainCallback(void);
 
@@ -68,7 +67,6 @@ static NSSlider      *gSidetone = nil;
 static NSTextField   *gSidetoneValue = nil;
 static NSPopUpButton *gMicPreset = nil;
 static NSButton      *gMixOn = nil;
-static NSButton      *gTHX = nil;
 static NSPopUpButton *gMixLayout = nil;
 static NSTextField   *gMixStatus = nil;
 static NSSlider      *gMicBand[OCCAM_BANDS];
@@ -192,11 +190,6 @@ static NSView *occam_spacer(void) {
 - (void)mixToggled:(id)sender {
 	if (gQuiet) return;
 	occamMixEnabled([(NSButton *)sender state] == NSControlStateValueOn ? 1 : 0);
-}
-
-- (void)thxToggled:(id)sender {
-	if (gQuiet) return;
-	occamTHXChanged([(NSButton *)sender state] == NSControlStateValueOn ? 1 : 0);
 }
 
 - (void)mixLayoutPicked:(id)sender {
@@ -377,15 +370,12 @@ static NSView *occam_headset_tab(const char **bandLabels, int minDB, int maxDB) 
 static NSView *occam_spatial_tab(void) {
 	gMixOn = [NSButton checkboxWithTitle:@"Render system audio to binaural"
 	                              target:gWinTarget action:@selector(mixToggled:)];
-	gTHX = [NSButton checkboxWithTitle:@"THX Spatial Audio"
-	                           target:gWinTarget action:@selector(thxToggled:)];
 	gMixLayout = occam_popup(@selector(mixLayoutPicked:));
 	gMixStatus = [NSTextField labelWithString:@""];
 	gMixStatus.font = [NSFont systemFontOfSize:11];
 	gMixStatus.textColor = [NSColor secondaryLabelColor];
 
-	NSView *renderer = occam_group(@"Spatial audio", @[
-		@[occam_row_label(@""), gTHX, occam_spacer()],
+	NSView *renderer = occam_group(@"Binaural rendering", @[
 		@[occam_row_label(@""), gMixOn, occam_spacer()],
 		@[occam_row_label(@"Layout"), gMixLayout, occam_spacer()],
 		@[occam_row_label(@""), gMixStatus, occam_spacer()],
@@ -631,14 +621,6 @@ void occam_window_set_mix(const char **layouts, int count, int selected,
 		gMixOn.enabled = enabled ? YES : NO;
 		gMixLayout.enabled = enabled ? YES : NO;
 		gMixStatus.stringValue = [NSString stringWithUTF8String:status];
-		gQuiet = NO;
-	}
-}
-
-void occam_window_set_thx(int on) {
-	@autoreleasepool {
-		gQuiet = YES;
-		gTHX.state = on ? NSControlStateValueOn : NSControlStateValueOff;
 		gQuiet = NO;
 	}
 }

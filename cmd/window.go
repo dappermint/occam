@@ -341,10 +341,6 @@ func (e *editor) setLowLatency(on bool) {
 	e.write("ultra-low latency", proto.SetHyperSpeed(on))
 }
 
-func (e *editor) setTHX(on bool) {
-	e.write("THX", proto.SetTHX(on))
-}
-
 // readExtras pulls everything below the equaliser. A setting the device does
 // not answer for keeps its zero value rather than failing the whole read.
 func readExtras(dev *hid.Device) menu.Extras {
