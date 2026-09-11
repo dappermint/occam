@@ -174,15 +174,19 @@ fn run() -> Result<(), String> {
             pipe.norm(),
             pipe.peak()
         );
-        let state = Box::leak(Box::new(Render {
+        // `Render` must outlive the CoreAudio IOProc, which holds the raw
+        // pointer; keeping it in a local Box (dropped only after
+        // occam_live_stop() has torn the IOProc down) means reconnecting the
+        // headset no longer leaks a pipeline per cycle.
+        let mut state = Box::new(Render {
             pipe,
             saw_in: AtomicU32::new(0),
             saw_out: AtomicU32::new(0),
             cycles: AtomicU32::new(0),
             in_peak: AtomicU32::new(0),
             out_peak: AtomicU32::new(0),
-        }));
-        let ctx = state as *mut Render as *mut c_void;
+        });
+        let ctx = &mut *state as *mut Render as *mut c_void;
 
         let status = unsafe { sys::occam_live_start(out_device, frames, render, ctx) };
         if status != 0 {
@@ -214,11 +218,21 @@ fn run() -> Result<(), String> {
 
         // Poll for the device disappearing. The tap mutes system output, so
         // sitting on a dead aggregate would leave the machine silent.
+        //
+        // coreaudiod restarting is the nastier case: our tap and aggregate IDs
+        // belong to the dead daemon, so occam_live_stop()'s destroy calls
+        // no-op and CATapMuted is never lifted - the machine stays muted with
+        // nothing owning the mute. Watch the aggregate itself, not just the
+        // headset, and rebuild from scratch the moment it stops answering.
         while !stopping() {
             sleep_ms(1000);
             let still = unsafe { sys::occam_find_output_exact(needle.as_ptr()) };
             if still != out_device {
                 println!("  {device} went away, releasing the tap");
+                break;
+            }
+            if unsafe { sys::occam_device_rate(agg) } <= 0.0 {
+                println!("  audio server restarted, rebuilding the tap");
                 break;
             }
         }
