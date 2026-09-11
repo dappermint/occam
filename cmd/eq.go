@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/dappermint/occam/internal/hid"
 	"github.com/dappermint/occam/internal/proto"
@@ -29,8 +28,8 @@ func newEQ() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "eq",
 		Short: "write an EQ curve into one of the headset's slots",
-		Long: "Brackets the write with setEQOrderUpdateStartStop the way Synapse does,\n" +
-			"then writes the curve with setCustomerEQBand.\n\n" +
+		Long: "Activates the slot, writes the curve with setCustomerEQBand, then\n" +
+			"commits it; without the commit the device ACKs the write and drops it.\n\n" +
 			"Band values are dB and are encoded sign-magnitude, matching the captured\n" +
 			"frames. Start with --dry-run to see the exact bytes.",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -43,9 +42,9 @@ func newEQ() *cobra.Command {
 			}
 
 			steps := []step{
-				{"eqUpdateStart", proto.EQUpdateStart()},
+				{"activateSlot", proto.ActivateSlot(byte(slot))},
 				{"setCustomerEQBand", proto.SetBands(byte(slot), eq)},
-				{"eqUpdateStop", proto.EQUpdateStop()},
+				{"commitBands", proto.CommitBands(byte(slot), eq)},
 			}
 			if activate {
 				steps = append(steps, step{"setSpeakerPresetEQ", proto.SelectPreset(byte(slot))})
@@ -79,10 +78,9 @@ func newEQ() *cobra.Command {
 				if dryRun {
 					continue
 				}
-				if err := dev.SetReport(proto.ReportID, payload); err != nil {
+				if err := send(dev, s.msg); err != nil {
 					return fmt.Errorf("%s: %w", s.name, err)
 				}
-				time.Sleep(interFrame)
 			}
 			fmt.Println()
 
@@ -127,8 +125,8 @@ func resolveEQ(preset, bandSpec string) (proto.EQ, error) {
 		if err != nil {
 			return proto.EQ{}, fmt.Errorf("band %d: %w", i+1, err)
 		}
-		if v < -127 || v > 127 {
-			return proto.EQ{}, fmt.Errorf("band %d is %d, outside the sign-magnitude range", i+1, v)
+		if v < bandMin || v > bandMax {
+			return proto.EQ{}, fmt.Errorf("band %d is %d, must be %d to %d", i+1, v, bandMin, bandMax)
 		}
 		eq[i] = int8(v)
 	}

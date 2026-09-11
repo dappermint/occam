@@ -157,11 +157,16 @@ func ParseOrder(args []byte) (Order, error) {
 // SelectPreset switches the active onboard curve.
 func SelectPreset(slot byte) *Message { return New(SetSpeakerPresetEQ, 0x00, slot) }
 
-// EQUpdateStart and EQUpdateStop bracket a curve write. Synapse sends the
-// start before touching bands and the stop afterwards; the captured tuple is
-// [225, 0, 1], so the argument is a single flag.
-func EQUpdateStart() *Message { return New(SetEQOrderUpdate, 0x00, 0x01) }
-func EQUpdateStop() *Message  { return New(SetEQOrderUpdate, 0x00, 0x00) }
+// ActivateSlot points the device's EQ cursor at a slot before a band write.
+// The captured Synapse tuple [225, 0, 1] was long misread as a start/stop
+// bracket; the argument is the slot index, not a flag.
+func ActivateSlot(slot byte) *Message { return New(SetEQOrderUpdate, 0x00, slot) }
+
+// CommitBands makes a band write stick. Without it the device ACKs the write
+// and discards it.
+func CommitBands(slot byte, eq EQ) *Message {
+	return New(SetEQFootstepScaling, 0x00, append([]byte{slot}, eq.Bytes()...)...)
+}
 
 // Battery, charging and firmware are reads with no argument.
 func Battery() *Message         { return New(GetBatteryStatus, 0x00) }

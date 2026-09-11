@@ -127,11 +127,10 @@ func readSlot(dev *hid.Device, position byte) (Slot, error) {
 // then commit (0xEB, argc=11, slot + 10 bands). The commit is what makes
 // the write stick; without it the device ACKs and discards.
 func writeSlot(dev *hid.Device, position byte, eq proto.EQ) error {
-	commit := proto.New(0xEB, 0x00, append([]byte{position}, eq.Bytes()...)...)
 	for _, m := range []*proto.Message{
-		proto.New(0xE1, 0x00, position),
+		proto.ActivateSlot(position),
 		proto.SetBands(position, eq),
-		commit,
+		proto.CommitBands(position, eq),
 	} {
 		if err := send(dev, m); err != nil {
 			return fmt.Errorf("slot %d: %w", position, err)
