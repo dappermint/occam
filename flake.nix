@@ -19,7 +19,7 @@
         let
           occam = pkgs.buildGoModule {
             pname = "occam";
-            version = "0.4.4";
+            version = "0.4.5";
             src = lib.fileset.toSource {
               root = ./.;
               fileset = lib.fileset.unions [
@@ -35,7 +35,7 @@
             ldflags = [
               "-s"
               "-w"
-              "-X github.com/dappermint/occam/cmd.version=0.4.4"
+              "-X github.com/dappermint/occam/cmd.version=0.4.5"
             ];
             meta = {
               description = "native macOS control of a Razer BlackShark V3 Pro, without Synapse";
